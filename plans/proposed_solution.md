@@ -1,4 +1,4 @@
-# Comcast "Everything App" - Architecture Plan
+# Example "Everything App" - Architecture Plan
 
 > **✅ MINIMAL IMPLEMENTATION COMPLETE**  
 > A working minimal example of this architecture has been implemented in this repository.  
@@ -14,7 +14,7 @@
 
 ## Executive Summary
 
-**Goal:** Build a single agent system that can handle any Comcast customer request across all service domains (WiFi, video content, billing, etc.)
+**Goal:** Build a single agent system that can handle any Example customer request across all service domains (WiFi, video content, billing, etc.)
 
 **Current Problem:** 
 - Spinning up fresh agents on every request due to dynamic client tool binding
@@ -98,7 +98,7 @@ from typing import Annotated, Literal
 from langchain.agents import AgentState
 from langchain_core.tools import BaseTool
 
-class ComcastAgentState(AgentState):
+class ExampleAgentState(AgentState):
     """Shared state across all agents"""
     messages: list  # Conversation history
     advertised_client_tools: list[BaseTool]  # Tools from client
@@ -172,8 +172,8 @@ wifi_mcp_tools = wifi_mcp_toolkit.get_tools()
 wifi_agent = create_agent(
     model="anthropic:claude-sonnet-4-5",
     tools=wifi_mcp_tools,  # MCP tools registered upfront
-    state_schema=ComcastAgentState,
-    system_prompt="""You are a WiFi specialist agent for Comcast. 
+    state_schema=ExampleAgentState,
+    system_prompt="""You are a WiFi specialist agent for Example. 
     
 Your role is to help customers with:
 - WiFi connectivity issues
@@ -195,8 +195,8 @@ video_mcp_tools = video_mcp_toolkit.get_tools()
 video_agent = create_agent(
     model="anthropic:claude-sonnet-4-5",
     tools=video_mcp_tools,
-    state_schema=ComcastAgentState,
-    system_prompt="""You are a video content specialist for Comcast.
+    state_schema=ExampleAgentState,
+    system_prompt="""You are a video content specialist for Example.
 
 Your role is to help customers with:
 - Finding and playing video content
@@ -277,7 +277,7 @@ from langchain_anthropic import ChatAnthropic
 
 model = ChatAnthropic(model="claude-sonnet-4-5")
 
-SUPERVISOR_PROMPT = """You are a helpful Comcast customer service supervisor.
+SUPERVISOR_PROMPT = """You are a helpful Example customer service supervisor.
 
 Your role is to understand customer requests and route them to the appropriate 
 specialist agent. You coordinate multiple specialists to resolve complex requests.
@@ -299,7 +299,7 @@ supervisor_agent = create_agent(
         # handle_billing_request,
         # handle_support_request,
     ],
-    state_schema=ComcastAgentState,
+    state_schema=ExampleAgentState,
     system_prompt=SUPERVISOR_PROMPT,
     context_schema=RuntimeContext,
 )
@@ -340,7 +340,7 @@ INTERRUPT_TOOLS = ["confirmation_dialog", "payment_form", "sensitive_action"]
 wifi_agent = create_agent(
     model=model,
     tools=wifi_mcp_tools,
-    state_schema=ComcastAgentState,
+    state_schema=ExampleAgentState,
     system_prompt=WIFI_PROMPT,
     middleware=[DomainToolFilterMiddleware("wifi")],
     context_schema=RuntimeContext,

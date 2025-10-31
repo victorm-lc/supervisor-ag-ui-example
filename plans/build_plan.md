@@ -1,8 +1,8 @@
-# Refactor to Comcast Architecture Pattern
+# Refactor to Example Architecture Pattern
 
 ## Overview
 
-Transform the current email assistant example into a demonstration of the Comcast "Everything App" architecture with supervisor routing, domain subagents, and dynamic client tool filtering.
+Transform the current email assistant example into a demonstration of the Example "Everything App" architecture with supervisor routing, domain subagents, and dynamic client tool filtering.
 
 ## Core Changes to `agent.py`
 
@@ -108,7 +108,7 @@ wifi_agent = create_agent(
             description_prefix="🚨 Action requires approval"
         )
     ],
-    system_prompt="You are a WiFi specialist for Comcast. Help customers with connectivity issues..."
+    system_prompt="You are a WiFi specialist for Example. Help customers with connectivity issues..."
 )
 
 video_agent = create_agent(
@@ -121,7 +121,7 @@ video_agent = create_agent(
             description_prefix="🚨 Action requires approval"
         )
     ],
-    system_prompt="You are a video content specialist for Comcast. Help customers find and watch content..."
+    system_prompt="You are a video content specialist for Example. Help customers find and watch content..."
 )
 ```
 
@@ -157,7 +157,7 @@ supervisor = create_agent(
     model="anthropic:claude-sonnet-4-5",
     tools=[handle_wifi_request, handle_video_request],
     checkpointer=InMemorySaver(),
-    system_prompt="""You are a Comcast customer service supervisor.
+    system_prompt="""You are a Example customer service supervisor.
     
 Route requests to the appropriate specialist:
 - handle_wifi_request: For internet and WiFi issues
@@ -208,7 +208,7 @@ function ConfirmationDialog({ message, options, onConfirm, onCancel }) {
 
 ### Update `README.md`
 
-- Replace email assistant description with Comcast architecture overview
+- Replace email assistant description with Example architecture overview
 - **Add "AG UI Architecture" section** explaining the pattern:
   - How agent tool calls trigger UI component rendering
   - Advertised tools pattern (client sends available tools)

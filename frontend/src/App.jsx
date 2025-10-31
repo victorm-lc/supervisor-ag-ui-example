@@ -609,7 +609,7 @@ function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>🏠 Comcast Everything App</h1>
+        <h1>🏠 Example Everything App</h1>
         <p>Powered by LangGraph + AG UI | Supervisor + Domain Subagents</p>
       </header>
 
@@ -617,7 +617,7 @@ function App() {
         <div className="messages">
           {messages.length === 0 && (
             <div className="welcome-message">
-              <h2>👋 Welcome to Comcast Support</h2>
+              <h2>👋 Welcome to Example Support</h2>
               <p>I can help you with:</p>
               <ul>
                 <li>📶 <strong>WiFi & Internet:</strong> "My WiFi is slow" or "Run network diagnostics"</li>

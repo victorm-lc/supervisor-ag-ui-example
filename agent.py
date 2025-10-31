@@ -1,5 +1,5 @@
 """
-Comcast "Everything App" Architecture Example for AG UI + LangGraph + MCP
+Example "Everything App" Architecture Example for AG UI + LangGraph + MCP
 
 This example demonstrates:
 1. Supervisor agent routing to domain-specific subagents
@@ -22,7 +22,7 @@ Key Innovation 1: CLIENT TOOL ADVERTISEMENT
 - Middleware filters client tools by domain relevance
 - Old app versions (fewer tools) and new versions (more tools) both work
 
-Key Innovation 2: MCP INTEGRATION (COMCAST PATTERN!)
+Key Innovation 2: MCP INTEGRATION (Example PATTERN!)
 - Each domain has dedicated MCP server (just like their architecture!)
 - WiFi Gateway MCP: wifi_diagnostic, restart_router
 - Video Gateway MCP: search_content
@@ -60,10 +60,10 @@ class AgentContext:
 
 
 # =============================================================================
-# MCP SERVER INITIALIZATION (COMCAST PATTERN!)
+# MCP SERVER INITIALIZATION (Example PATTERN!)
 # =============================================================================
 #
-# Each domain has its own dedicated MCP server - just like Comcast's architecture!
+# Each domain has its own dedicated MCP server - just like Example's architecture!
 # - WiFi Gateway MCP: Provides wifi_diagnostic, restart_router
 # - Video Gateway MCP: Provides search_content
 #
@@ -132,7 +132,7 @@ print(f"   Video MCP: {[t.name for t in video_mcp_tools]}")
 
 
 # =============================================================================
-# DOMAIN TOOL FILTERING MIDDLEWARE (COMCAST PATTERN)
+# DOMAIN TOOL FILTERING MIDDLEWARE (Example PATTERN)
 # =============================================================================
 #
 # 🎯 THE KEY INNOVATION: Version-Agnostic Backend
@@ -286,7 +286,7 @@ wifi_agent = create_agent(
             description_prefix="🚨 Action requires approval",
         ),
     ],
-    system_prompt="""You are a helpful Comcast assistant helping with WiFi and internet connectivity.
+    system_prompt="""You are a helpful Example assistant helping with WiFi and internet connectivity.
 
 Speak directly to the customer in first person:
 - "I'll run diagnostics on your network..."
@@ -300,7 +300,7 @@ When helping with connectivity issues:
 3. Suggest solutions (like router restart) when appropriate
 4. The router restart will automatically prompt for user confirmation
 
-Be friendly, clear, and technically helpful. Make the customer feel like they're talking to one unified Comcast assistant.""",
+Be friendly, clear, and technically helpful. Make the customer feel like they're talking to one unified Example assistant.""",
 )
 
 
@@ -321,7 +321,7 @@ video_agent = create_agent(
             description_prefix="🚨 Confirmation required",
         ),
     ],
-    system_prompt="""You are a helpful Comcast assistant helping customers find and watch video content.
+    system_prompt="""You are a helpful Example assistant helping customers find and watch video content.
 
 Speak directly to the customer in first person:
 - "I'll search for that movie..."
@@ -337,7 +337,7 @@ When helping customers watch content:
 Note: play_video has return_direct=True, so you don't need to send an additional message after calling it.
 The video player will appear automatically in the UI.
 
-Be enthusiastic, friendly, and helpful. Make the customer feel like they're talking to one unified Comcast assistant who loves helping them find great content.""",
+Be enthusiastic, friendly, and helpful. Make the customer feel like they're talking to one unified Example assistant who loves helping them find great content.""",
 )
 
 
@@ -420,7 +420,7 @@ async def handle_video_request(
 supervisor = create_agent(
     model="anthropic:claude-haiku-4-5",
     tools=[handle_wifi_request, handle_video_request],
-    system_prompt="""You are a helpful Comcast customer service assistant. You help customers with WiFi/internet issues and video content.
+    system_prompt="""You are a helpful Example customer service assistant. You help customers with WiFi/internet issues and video content.
 
 When a customer has a request, you have specialized tools to help them:
 - Use handle_wifi_request for: internet connectivity, WiFi issues, network problems, router issues, slow speeds, connection drops, network diagnostics
