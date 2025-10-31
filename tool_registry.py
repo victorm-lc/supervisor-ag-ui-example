@@ -9,11 +9,27 @@ This pattern makes the backend version-agnostic:
 - Old app versions with fewer tools still work
 - New app versions with more tools work automatically
 - No backend changes needed when adding new client tools
+
+VERSION COMPATIBILITY EXAMPLE:
+-----------------------------
+Mobile v1.0 advertises: ['confirmation_dialog', 'error_display']
+  → WiFi agent gets: wifi_diagnostic + restart_router + confirmation_dialog + error_display
+  → Video agent gets: search_content + confirmation_dialog + error_display
+  
+Mobile v2.0 advertises: ['confirmation_dialog', 'error_display', 'play_video', 'network_status_display']
+  → WiFi agent gets: wifi_diagnostic + restart_router + confirmation_dialog + error_display + network_status_display
+  → Video agent gets: search_content + confirmation_dialog + error_display + play_video
+
+Web v1.0 advertises: ['confirmation_dialog', 'error_display', 'play_video', 'network_status_display', 'advanced_video_controls']
+  → Works perfectly! Backend filters to what each domain needs.
+
+✅ Backend code NEVER changes - it just reads what the client advertises!
+✅ Old and new app versions work simultaneously.
+✅ Team develops tools together in this file.
 """
 
 from typing import Annotated
 from langchain_core.tools import tool
-
 
 # =============================================================================
 # AG UI CLIENT TOOL IMPLEMENTATIONS
@@ -77,7 +93,7 @@ def play_video(
     
     Video domain-specific tool.
     """
-    # Mock YouTube video - always show Big Buck Bunny demo
+    # Mock YouTube video - always show LangChain video
     # In production, you'd use the video_id to fetch the actual video
     return {
         "type": "video_player",

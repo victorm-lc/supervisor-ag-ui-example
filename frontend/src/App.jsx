@@ -201,13 +201,13 @@ function App() {
 
     try {
       // Stream the agent's response
-      // DYNAMIC TOOL ADVERTISEMENT: Send available client tools in config
+      // DYNAMIC TOOL ADVERTISEMENT: Send available client tools via config
       const stream = client.runs.stream(threadId, 'supervisor', {
         input: { messages: [{ role: 'user', content: userMessage }] },
-        config: { 
-          configurable: { 
-            advertised_client_tools: ADVERTISED_CLIENT_TOOLS 
-          } 
+        config: {
+          configurable: {
+            advertised_client_tools: ADVERTISED_CLIENT_TOOLS
+          }
         },
         streamMode: 'messages',
       })
@@ -353,6 +353,11 @@ function App() {
             decisions: [{ type: 'approve' }],
           },
         },
+        config: {
+          configurable: {
+            advertised_client_tools: ADVERTISED_CLIENT_TOOLS
+          }
+        },
         streamMode: 'messages',
       })
 
@@ -452,6 +457,11 @@ function App() {
             decisions: [{ type: 'reject', message: 'User cancelled this action' }],
           },
         },
+        config: {
+          configurable: {
+            advertised_client_tools: ADVERTISED_CLIENT_TOOLS
+          }
+        },
         streamMode: 'messages',
       })
 
@@ -509,6 +519,11 @@ function App() {
           resume: {
             decisions: [{ type: 'approve' }],
           },
+        },
+        config: {
+          configurable: {
+            advertised_client_tools: ADVERTISED_CLIENT_TOOLS
+          }
         },
         streamMode: 'messages',
       })

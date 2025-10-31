@@ -1,627 +1,414 @@
-#"Everything App" Architecture Example
-## AG UI + LangGraph + Domain Subagents + Dynamic Tool Advertisement
+# AG UI + LangGraph + MCP: Version-Agnostic Multi-Agent Architecture
 
-This example demonstrates the **"Everything App" architecture pattern** using LangGraph and AG UI. It shows how to build a **version-agnostic**, multi-domain customer service system with supervisor routing, domain-specific subagents, **dynamic client tool advertisement**, and interrupt-based UI interactions.
+**A production-ready example showing how to build multi-agent systems that work with any client version, using the Model Context Protocol (MCP).**
 
-## 🏗️ What This Example Demonstrates
-
-### 1. **Supervisor + Domain Subagents Pattern**
-- **Supervisor agent** routes customer requests to domain specialists
-- **WiFi domain subagent** handles internet and connectivity issues  
-- **Video domain subagent** handles content search and streaming
-- Each subagent has its own tools and expertise
-
-### 2. **AG UI (Agent-Generated UI) Architecture**
-- **Agent tool calls trigger frontend UI components**
-- **Confirmation dialogs** for user approvals
-- **Dynamic UI rendering** based on tool types
-- **Interrupt-based interactions** with resume capability
-
-### 3. **Dynamic Client Tool Advertisement** ⭐
-- **Frontend advertises** available UI tools in each request
-- **Backend dynamically injects** tools per domain at agent creation time
-- **Version-agnostic** - works with any client version (v1.0, v2.0, etc.)
-- WiFi agent gets `network_status_display`, Video agent gets `play_video`
-- No backend changes needed when adding new client tools!
-
-### 4. **Human-in-the-Loop (HITL) Middleware**
-- Router restart requires user confirmation
-- Custom confirmation dialogs for sensitive operations
-- Interrupt propagation from subagents to supervisor
+Demonstrates: Supervisor routing, domain subagents, **MCP server integration**, dynamic tool advertisement, and Agent-Generated UI (AG UI).
 
 ---
 
-## 📋 AG UI Architecture Explained
+## 🎯 The Problem This Solves
 
-**AG UI (Agent-Generated UI)** is a pattern where the agent's tool calls directly trigger UI component rendering in the frontend.
+Your mobile app has different versions in the wild (v1.0, v2.0, v3.0), each with different UI capabilities. **How do you build an agent backend that works with all versions without constantly updating the backend?**
 
-### The Flow
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         AG UI FLOW                               │
-└─────────────────────────────────────────────────────────────────┘
-
-1. User: "My router is having issues"
-         ↓
-2. Supervisor → Routes to WiFi Subagent
-         ↓
-3. WiFi Subagent: Calls confirmation_dialog tool
-         ↓
-4. HITL Middleware: Intercepts and pauses execution
-         ↓
-5. Frontend: Detects tool call → Renders ConfirmationDialog component
-         ↓
-6. User: Clicks "Yes, restart" in the UI
-         ↓
-7. Frontend: Sends resume command with user's choice
-         ↓
-8. WiFi Subagent: Continues execution → Calls restart_router
-         ↓
-9. User: Sees "Router restart initiated" message
-```
-
-### Tool-to-Component Mapping
-
-The frontend maps tool names to React components:
-
-| Tool Name | React Component | Purpose | Type |
-|-----------|----------------|---------|------|
-| `confirmation_dialog` | `<ConfirmationDialog>` | Generic Yes/No confirmations | Interrupt |
-| `restart_router` | `<RouterRestartConfirmation>` | Special router restart UI | Interrupt |
-| `network_status_display` | `<NetworkStatusCard>` | WiFi status display | Interrupt |
-| `play_video` | `<VideoPlayer>` | YouTube video player | **return_direct** ✨ |
-| `error_display` | `<ErrorDisplay>` | Error message display | Interrupt |
-
-**Note:** `play_video` uses `return_direct=True`, meaning it renders immediately to the user rather than returning to the subagent!
-
-### Dynamic Client Tool Advertisement ✨ (Fully Implemented!)
-
-This example demonstrates the **dynamic client tool advertisement pattern** that makes the backend **version-agnostic**.
-
-**How It Works:**
-
-1. **Frontend advertises available tools**
-   ```javascript
-   const ADVERTISED_CLIENT_TOOLS = [
-     'confirmation_dialog',
-     'error_display',
-     'network_status_display',
-     'play_video',  // return_direct=True - renders video immediately!
-   ]
-   
-   // Sent with every request
-   client.runs.stream(threadId, 'supervisor', {
-     config: { 
-       configurable: { advertised_client_tools: ADVERTISED_CLIENT_TOOLS }
-     }
-   })
-   ```
-
-2. **Backend middleware filters per domain**
-   ```python
-   # DomainToolFilterMiddleware dynamically:
-   # 1. Gets advertised tools from config
-   # 2. Filters by DOMAIN_TOOL_MAPPING (wifi vs video)
-   # 3. Looks up implementations from CLIENT_TOOL_REGISTRY
-   # 4. Injects filtered tools into subagent
-   ```
-
-3. **Tool Registry provides implementations**
-   ```python
-   # tool_registry.py
-   CLIENT_TOOL_REGISTRY = {
-       "confirmation_dialog": confirmation_dialog,
-       "error_display": error_display,
-       "network_status_display": network_status_display,
-       "play_video": play_video,  # return_direct=True!
-   }
-   
-   @tool(return_direct=True)
-   def play_video(video_id: str, title: str) -> dict:
-       """Play video in YouTube player - renders immediately!"""
-       return {
-           "type": "video_player",
-           "video_url": "https://www.youtube.com/embed/yVinK_ZIrt0?si=r9f67hrOSgwhiIe9",
-           "title": title,
-           "video_id": video_id,
-       }
-   ```
-
-**Version Compatibility Example:**
-
-| App Version | Advertised Tools | WiFi Agent Gets | Video Agent Gets |
-|-------------|-----------------|-----------------|------------------|
-| **v1.0** (old) | `confirmation_dialog`, `error_display` | `wifi_diagnostic`, `restart_router`, `confirmation_dialog`, `error_display` | `search_content`, `confirmation_dialog`, `error_display`, `play_video` |
-| **v2.0** (new) | `confirmation_dialog`, `error_display`, `network_status_display`, `play_video` | `wifi_diagnostic`, `restart_router`, `confirmation_dialog`, `error_display`, `network_status_display` | `search_content`, `confirmation_dialog`, `error_display`, `play_video` |
-
-✅ **No backend changes needed!** Old and new app versions work simultaneously.
-
-**Key Benefits:**
-- ✅ **Version-agnostic backend** - works with any client version
-- ✅ **Platform-specific UI** - mobile vs web can advertise different tools
-- ✅ **Graceful degradation** - missing tools handled automatically
-- ✅ **Domain isolation** - WiFi agent never sees `video_player_ui`, Video agent never sees `network_status_display`
+**This example shows you how.**
 
 ---
 
-## 🏛️ System Architecture
+## ⚡ Quick Start
 
+```bash
+# 1. Setup
+echo "ANTHROPIC_API_KEY=your_key" > .env
+uv venv && source .venv/bin/activate
+uv sync
+
+# 2. Start backend (Terminal 1)
+langgraph dev
+
+# 3. Start frontend (Terminal 2)
+cd frontend && npm install && npm run dev
+
+# 4. Test at http://localhost:3000
+# Try: "restart my router" or "show me the matrix"
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      FRONTEND (React)                            │
-│                                                                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  AG UI Component Registry                                │   │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │   │
-│  │  │ Confirmation │  │ Router       │  │ Network      │ │   │
-│  │  │ Dialog       │  │ Restart      │  │ Status       │ │   │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘ │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-                                │ LangGraph SDK (HTTP/SSE)
-                                ↓
-┌─────────────────────────────────────────────────────────────────┐
-│             LANGGRAPH DEV SERVER (Port 2024)                     │
-│                                                                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                   SUPERVISOR AGENT                       │   │
-│  │                                                           │   │
-│  │   Tools: [handle_wifi_request, handle_video_request]    │   │
-│  │                                                           │   │
-│  │   Routes based on: Internet/WiFi → WiFi Agent           │   │
-│  │                   Video/Streaming → Video Agent          │   │
-│  └──────────────┬─────────────────────┬──────────────────────┘   │
-│                 │                     │                           │
-│        ┌────────▼─────────┐  ┌───────▼────────┐                │
-│        │   WIFI SUBAGENT  │  │  VIDEO SUBAGENT │                │
-│        ├──────────────────┤  ├────────────────┤                │
-│        │ MCP Tools:       │  │ MCP Tools:      │                │
-│        │ • wifi_diagnostic│  │ • search_content│                │
-│        │ • restart_router │  │                 │                │
-│        │                  │  │                 │                │
-│        │ Client Tools     │  │ Client Tools    │                │
-│        │ (dynamically     │  │ (dynamically    │                │
-│        │  injected):      │  │  injected):     │                │
-│        │ • confirmation   │  │ • confirmation  │                │
-│        │   _dialog        │  │   _dialog       │                │
-│        │ • error_display  │  │ • error_display │                │
-│        │ • network_status │  │ • play_video    │                │
-│        │   _display       │  │   (return_      │                │
-│        │                  │  │    direct=True) │                │
-│        │                  │  │                 │                │
-│        │ Middleware:      │  │ Middleware:     │                │
-│        │ • HITL           │  │ • HITL          │                │
-│        └──────────────────┘  └─────────────────┘                │
-└─────────────────────────────────────────────────────────────────┘
-```
+
+**Prerequisites:** Python 3.11+, Node.js 18+, [uv](https://astral.sh/uv), Anthropic API key
 
 ---
 
-## 🚀 Key Concepts
+## 🏗️ Architecture Overview
 
-### 1. Supervisor Routing
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  FRONTEND (v1.0, v2.0, v3.0)                                    │
+│  Advertises: "I support these UI tools: [play_video, ...]"     │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  LANGGRAPH SUPERVISOR AGENT                                     │
+│  Routes: WiFi issues → WiFi Agent, Video → Video Agent         │
+└────────────┬────────────────────────────┬───────────────────────┘
+             │                            │
+     ┌───────▼─────────┐          ┌───────▼─────────┐
+     │  WIFI AGENT     │          │  VIDEO AGENT    │
+     │                 │          │                 │
+     │  MCP Tools ✨   │          │  MCP Tools ✨   │
+     │  (via adapter)  │          │  (via adapter)  │
+     │  ↓              │          │  ↓              │
+     └────┬────────────┘          └────┬────────────┘
+          │                            │
+          ▼                            ▼
+┌──────────────────┐          ┌──────────────────┐
+│ WiFi MCP Server  │          │ Video MCP Server │
+│ (stdio)          │          │ (stdio)          │
+│                  │          │                  │
+│ • wifi_diagnostic│          │ • search_content │
+│ • restart_router │          │                  │
+└──────────────────┘          └──────────────────┘
 
-The supervisor analyzes the user's request and routes it to the appropriate domain specialist:
-
-```python
-supervisor = create_agent(
-    model="anthropic:claude-sonnet-4-5",
-    tools=[handle_wifi_request, handle_video_request],
-    system_prompt="""Route requests to domain specialists:
-    - WiFi issues → handle_wifi_request
-    - Video content → handle_video_request"""
-)
+     + Client Tools (dynamically filtered per domain):
+       WiFi:  confirmation_dialog, network_status_display
+       Video: confirmation_dialog, play_video
 ```
 
-### 2. Domain Subagents with Dynamic Tool Injection
+**Key Innovations:** 
+1. **MCP Servers:** Each domain has dedicated MCP server (just like Comcast!)
+2. **Dynamic Tool Filtering:** Agents only get tools the client actually supports
+3. **No Backend Changes:** Add new UI features without touching backend code
 
-Each domain has its own agent with static MCP tools. Client tools are added at agent creation:
+---
 
-```python
-# Define static MCP tools for WiFi domain
-wifi_static_tools = [
-    wifi_diagnostic,   # MCP tool (backend)
-    restart_router,    # MCP tool (backend)
+## 🔑 Core Concepts
+
+### 1. Dynamic Tool Advertisement
+
+**Frontend** (App.jsx):
+```javascript
+// Frontend declares what it can render
+const ADVERTISED_CLIENT_TOOLS = [
+  'confirmation_dialog',
+  'play_video',        // New in v2.0!
+  'network_status_display'
 ]
 
-# Get all potential client tools for WiFi domain from registry
-wifi_client_tools = get_tools_by_names(DOMAIN_TOOL_MAPPING["wifi"])
+// Sends with every request
+client.runs.stream(threadId, 'supervisor', {
+  config: { 
+    configurable: { advertised_client_tools: ADVERTISED_CLIENT_TOOLS }
+  }
+})
+```
 
+**Backend** (agent.py):
+```python
+# Middleware filters tools per domain
+DOMAIN_TOOL_MAPPING = {
+    "wifi": ["confirmation_dialog", "network_status_display"],
+    "video": ["confirmation_dialog", "play_video"],
+}
+
+# WiFi agent never sees play_video, Video agent never sees network_status_display
+```
+
+**Result:**
+| App Version | Sends | WiFi Gets | Video Gets |
+|-------------|-------|-----------|------------|
+| v1.0 | 2 tools | 2 tools | 2 tools |
+| v2.0 | 4 tools | 3 tools | 3 tools |
+
+✅ **No backend changes needed!**
+
+### 2. Supervisor + Subagents
+
+```python
+# Supervisor routes based on intent
+supervisor = create_agent(
+    tools=[handle_wifi_request, handle_video_request],
+    system_prompt="Route WiFi → handle_wifi_request, Video → handle_video_request"
+)
+
+# Domain specialists
 wifi_agent = create_agent(
-    model="anthropic:claude-sonnet-4-5",
-    tools=wifi_static_tools + wifi_client_tools,  # MCP tools + ALL client tools
-    # Middleware used for logging and HITL
-    middleware=[
-        DomainToolFilterMiddleware("wifi", wifi_static_tools),
-        HumanInTheLoopMiddleware(
-            interrupt_on={"restart_router": True}
-        )
-    ]
+    tools=[wifi_diagnostic, restart_router] + client_tools,
+    middleware=[DomainToolFilterMiddleware("wifi")]
 )
 ```
 
-### 3. Tool Wrappers with ToolRuntime for Interrupt Propagation
+### 3. AG UI Pattern
 
-Subagents are wrapped as tools using **ToolRuntime** to propagate configuration and interrupts:
+Agent tool calls → React components:
+
+```python
+# Backend: Agent calls client tool
+@tool(return_direct=True)
+def play_video(video_id: str, title: str):
+    return {"type": "video_player", "video_url": "..."}
+```
+
+```javascript
+// Frontend: Maps to React component
+{videoPlayer && <VideoPlayer url={videoPlayer.video_url} />}
+```
+
+### 4. MCP Integration (Production Pattern!) ⭐
+
+**Each domain has its own MCP server** - exactly like Comcast's architecture!
+
+**MCP Servers** (`mcp_servers/`):
+```python
+# wifi_server.py - WiFi Gateway MCP
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("WiFi Gateway")
+
+@mcp.tool()
+def wifi_diagnostic(network_name: str) -> str:
+    """Run diagnostics on WiFi network"""
+    return diagnostic_results
+
+@mcp.tool()
+def restart_router(router_id: str = "primary") -> str:
+    """Restart customer's router"""
+    return "Router restarting..."
+```
+
+**Agent connects via MCP adapters** (`agent.py`):
+```python
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+mcp_client = MultiServerMCPClient({
+    "wifi": {
+        "transport": "stdio",
+        "command": "python",
+        "args": ["mcp_servers/wifi_server.py"],
+    },
+    "video": {
+        "transport": "stdio",
+        "command": "python",
+        "args": ["mcp_servers/video_server.py"],
+    }
+})
+
+# Load tools from MCP servers
+mcp_tools = await mcp_client.get_tools()
+wifi_mcp_tools = [t for t in mcp_tools if t.name in ["wifi_diagnostic", "restart_router"]]
+video_mcp_tools = [t for t in mcp_tools if t.name in ["search_content"]]
+
+# Use in agents
+wifi_agent = create_agent(tools=wifi_mcp_tools + client_tools)
+```
+
+**Benefits:**
+- ✅ **Clean separation:** MCP tools (backend services) vs Client tools (frontend UI)
+- ✅ **Domain isolation:** WiFi team owns `wifi_server.py`, Video team owns `video_server.py`
+- ✅ **Production-ready:** MCP servers can be deployed independently
+- ✅ **Just like Comcast:** Each domain has dedicated MCP server (their exact pattern!)
+
+### 5. Interrupt Propagation
+
+Subagent interrupts automatically surface to the UI:
 
 ```python
 @tool
-def handle_wifi_request(
-    request: str, 
-    runtime: ToolRuntime  # Injected by LangGraph - provides access to config, state, etc.
-) -> str:
-    """
-    ToolRuntime provides:
-    - runtime.config: Contains thread_id and advertised_client_tools
-    - runtime.state: Current agent state
-    - runtime.context: Runtime context
-    """
-    # Pass runtime.config to subagent - this is crucial for interrupt propagation!
+def handle_wifi_request(request: str, runtime: ToolRuntime):
+    # runtime.config propagates thread_id + interrupts
     result = wifi_agent.invoke(
         {"messages": [HumanMessage(content=request)]},
-        config=runtime.config  # Propagates thread_id and enables nested interrupts
+        config=runtime.config  # 🔑 Key for nested interrupts
     )
-    
-    # Simply return the message content
-    # Interrupts automatically propagate through the shared config
     return result["messages"][-1].content
 ```
 
-**Key Points:**
-- `ToolRuntime` is automatically injected into tools by LangGraph
-- Passing `runtime.config` ensures subagent interrupts bubble up to supervisor
-- No need for Command pattern - direct string return works with proper config propagation
+---
 
-### 4. Domain Tool Filtering
+## 📁 Project Structure
 
-Tools are filtered per domain at agent creation time:
+```
+├── agent.py                    # Supervisor + subagents + MCP client
+├── tool_registry.py            # Client tools (version-agnostic registry)
+├── langgraph.json              # Config: points to supervisor
+├── mcp_servers/                # 🆕 MCP servers (one per domain)
+│   ├── wifi_server.py          #    WiFi Gateway MCP
+│   └── video_server.py         #    Video Gateway MCP
+└── frontend/
+    ├── src/App.jsx             # React UI + tool advertisement
+    └── src/App.css             # Component styles
+```
 
+**Key Files:**
+- `agent.py`: Supervisor, subagents, MCP client, middleware (~400 lines)
+- `mcp_servers/wifi_server.py`: WiFi backend tools (diagnostics, restart)
+- `mcp_servers/video_server.py`: Video backend tools (search content)
+- `tool_registry.py`: UI tool definitions shared by FE/BE teams
+- `frontend/src/App.jsx`: Advertises tools + renders AG UI components
+
+---
+
+## 🧪 Try It
+
+### Test 1: Interrupt Flow
+```
+You: "restart my router"
+→ Confirmation dialog appears
+→ Click "Yes"
+→ Router restarts
+```
+
+### Test 2: return_direct Video Player
+```
+You: "show me the matrix"
+→ YouTube player appears instantly
+→ No interrupt, just renders!
+```
+
+### Test 3: Version Compatibility
+
+**Simulate v1.0** (remove a tool from `ADVERTISED_CLIENT_TOOLS`):
+```javascript
+const ADVERTISED_CLIENT_TOOLS = [
+  'confirmation_dialog',  // v1.0 only has this
+]
+```
+✅ Backend still works! Just filters to what's available.
+
+---
+
+## 🔧 How It Works
+
+### Request Flow
+
+1. **Frontend** sends message + advertised tools
+2. **Supervisor** analyzes intent → routes to domain agent
+3. **Tool wrapper** extracts advertised tools from `runtime.config`
+4. **MCP client** loads tools from domain MCP servers (WiFi, Video)
+5. **Middleware** filters client tools: `advertised ∩ domain_allowed`
+6. **Subagent** executes with MCP tools + filtered client tools
+7. **Frontend** renders UI components for tool calls
+
+### Logs You'll See
+
+```
+✅ Loaded MCP tools from servers:
+   WiFi MCP: ['wifi_diagnostic', 'restart_router']
+   Video MCP: ['search_content']
+📤 [VIDEO] Passing advertised tools: ['play_video', 'confirmation_dialog', ...]
+📥 [VIDEO] Middleware received: ['play_video', 'confirmation_dialog', ...]
+🔍 [VIDEO] Allowed for domain: ['play_video', 'confirmation_dialog']
+🔧 [VIDEO] Final injected: ['search_content', 'play_video', 'confirmation_dialog']
+```
+
+---
+
+## 🎨 Customization
+
+### Add a New Client Tool
+
+**1. Define tool** (`tool_registry.py`):
+```python
+@tool
+def my_new_ui(data: dict) -> str:
+    """My custom UI component"""
+    return "rendered"
+
+CLIENT_TOOL_REGISTRY["my_new_ui"] = my_new_ui
+```
+
+**2. Map to domain** (`agent.py`):
 ```python
 DOMAIN_TOOL_MAPPING = {
-    "wifi": ["confirmation_dialog", "error_display", "network_status_display"],
-    "video": ["confirmation_dialog", "error_display", "play_video"],
-}
-
-# Tool registry provides implementations
-def get_tools_by_names(tool_names: list[str]) -> list:
-    return [
-        CLIENT_TOOL_REGISTRY[name]
-        for name in tool_names
-        if name in CLIENT_TOOL_REGISTRY
-    ]
-```
-
-**Key Points:**
-- Each domain specifies which client tools it can use
-- WiFi agent never sees `play_video`, Video agent never sees `network_status_display`
-- All tools are added to the agent at creation time, not dynamically at runtime
-
----
-
-## 🛠️ Prerequisites
-
-- **Python >= 3.11**
-- **Node.js >= 18**
-- **uv** (install: `curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- **Anthropic API key** (get from https://console.anthropic.com/)
-
----
-
-## 🚀 Quick Start
-
-### 1. Clone and Setup Environment
-
-```bash
-# Create .env file with your Anthropic API key
-echo "ANTHROPIC_API_KEY=your_api_key_here" > .env
-# Or manually create .env and add your key
-
-# Create and activate virtual environment
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install Python dependencies
-uv sync
-```
-
-### 2. Start the Backend (Terminal 1)
-
-```bash
-langgraph dev
-```
-
-✅ LangGraph server starts at `http://localhost:2024`  
-✅ LangGraph Studio UI at `http://localhost:2024`
-
-### 3. Start the Frontend (Terminal 2)
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-✅ React app starts at `http://localhost:3000`
-
-### 4. Test It Out!
-
-Open `http://localhost:3000` in your browser and try:
-
-**🔧 Test Interrupt (Router Restart):**
-```
-"restart my router"
-```
-→ Click "Yes, restart router" in the confirmation dialog
-
-**🎬 Test Video Player (return_direct):**
-```
-"show me the matrix"
-```
-→ YouTube player appears instantly with video!
-
----
-
-## 🎯 Usage Examples
-
-### Example 1: WiFi Diagnostics
-
-**User:** "My internet is really slow"
-
-**Flow:**
-1. Supervisor routes to WiFi subagent
-2. WiFi agent calls `wifi_diagnostic("home network")`
-3. Results displayed to user
-4. No interrupt (auto-approved)
-
-### Example 2: Router Restart (with Confirmation)
-
-**User:** "Can you restart my router?"
-
-**Flow:**
-1. Supervisor routes to WiFi subagent
-2. WiFi agent calls `confirmation_dialog(message="Are you sure?", options=["Yes", "No"])`
-3. **INTERRUPT** - Frontend renders `<ConfirmationDialog>` component
-4. User clicks "Yes"
-5. Frontend resumes agent with approval
-6. WiFi agent calls `restart_router()`
-7. Success message displayed
-
-### Example 3: Video Playback with return_direct ⚡
-
-**User:** "Play The Matrix for me"
-
-**Flow:**
-1. Supervisor routes to Video subagent
-2. Video agent calls `search_content("The Matrix")`
-3. Agent calls `play_video(video_id="matrix", title="The Matrix")`
-4. **YouTube video player renders immediately** (no interrupt, no pause!)
-5. Agent sends "Great! I've started playing The Matrix for you. Enjoy!"
-
-**Key:** `play_video` has `return_direct=True`, so the video player appears instantly without pausing agent execution! This demonstrates the AG UI pattern for immediate UI rendering.
-
----
-
-## 🧪 Testing in LangGraph Studio
-
-1. Open `http://localhost:2024` in your browser
-2. Select the `supervisor` graph
-3. Send a message: "My WiFi is slow"
-4. Watch the supervisor route to the WiFi subagent
-5. See interrupts appear when confirmation is needed
-6. Provide approval via the Studio UI
-
-**For interrupts in Studio:**
-- Click the "Interrupt" tab when execution pauses
-- Enter approval JSON:
-  ```json
-  {"decisions": [{"type": "approve"}]}
-  ```
-
----
-
-## 📂 Project Structure
-
-```
-.
-├── agent.py                 # Main agent file with supervisor + subagents
-├── tool_registry.py         # Client tool registry (version-agnostic)
-├── langgraph.json           # LangGraph config (points to supervisor)
-├── pyproject.toml           # Python dependencies
-├── .env                     # Your API keys (create from .env.example)
-├── README.md                # This file
-└── frontend/
-    ├── src/
-    │   ├── App.jsx          # React app with AG UI component registry
-    │   └── App.css          # Styles for all UI components
-    ├── package.json
-    └── vite.config.js
-```
-
----
-
-## 🔑 Key Files Explained
-
-### `tool_registry.py`
-
-Central registry for all AG UI client tools:
-
-1. **Client Tool Implementations**: All AG UI tools like `confirmation_dialog`, `play_video` (with `return_direct=True`)
-2. **CLIENT_TOOL_REGISTRY**: Dict mapping tool names to implementations
-3. **get_tools_by_names()**: Helper to look up tools dynamically
-4. **Version Compatibility Examples**: Shows how different app versions work
-
-**Featured Tool:** `play_video` with `return_direct=True` demonstrates immediate UI rendering without interrupts!
-
-### `agent.py`
-
-Contains the complete system architecture:
-
-1. **MCP Tools**: Backend tools like `wifi_diagnostic`, `restart_router`, `search_content`
-2. **Domain Tool Mapping**: Defines which client tools each domain can use
-3. **Domain Subagents**: WiFi and Video specialist agents with dynamically injected client tools
-4. **Subagent Tool Wrappers**: Wrap subagents using `ToolRuntime` for interrupt propagation via `runtime.config`
-5. **Supervisor Agent**: Routes requests to subagents, returns responses naturally
-
-**Note:** Client tools like `play_video` are now in `tool_registry.py`, not `agent.py`!
-
-### `frontend/src/App.jsx`
-
-The React frontend with AG UI implementation:
-
-1. **AG UI Components** (lines 30-100): `ConfirmationDialog`, `RouterRestartConfirmation`
-2. **Tool-to-Component Mapping** (lines 195-225): Maps tool names to components
-3. **Interrupt Handling** (lines 250-280): Processes HITL interrupts and renders UI
-4. **Resume Logic** (lines 290-350): Sends user input back to agent
-
-### `langgraph.json`
-
-Configures which graph to expose via `langgraph dev`:
-
-```json
-{
-  "graphs": {
-    "supervisor": "./agent.py:supervisor"
-  }
+    "wifi": ["confirmation_dialog", "my_new_ui"],  # Add here
 }
 ```
 
-This tells LangGraph to expose the `supervisor` agent from `agent.py` at `http://localhost:2024`.
+**3. Advertise** (`App.jsx`):
+```javascript
+const ADVERTISED_CLIENT_TOOLS = [
+    'confirmation_dialog',
+    'my_new_ui',  // ← Just add this!
+]
+```
 
----
+**4. Render** (`App.jsx`):
+```javascript
+{interrupt && interruptType === 'my_new' && (
+    <MyNewUI data={interruptData} />
+)}
+```
 
-## 🎨 Customization Ideas
+**No backend restart needed** - middleware automatically picks it up!
 
-### Add a New Domain
+### Add a New MCP Tool
 
-1. **Create domain tools** in `agent.py`
-2. **Create subagent** with those tools
-3. **Add tool wrapper** (like `handle_wifi_request`)
-4. **Update supervisor** to include the new wrapper
-5. **Add routing logic** to supervisor's system prompt
+**1. Add tool to MCP server** (`mcp_servers/wifi_server.py`):
+```python
+@mcp.tool()
+def check_modem_status(modem_id: str) -> str:
+    """Check status of customer's modem"""
+    return "Modem is online and functioning normally"
+```
 
-### Add a New AG UI Component
+**2. Update agent to use new tool** (`agent.py`):
+```python
+# Tools automatically loaded from MCP server!
+# Just restart langgraph dev to pick up changes
+wifi_mcp_tools = [t for t in mcp_tools if t.name in [
+    "wifi_diagnostic", 
+    "restart_router",
+    "check_modem_status"  # ← New tool!
+]]
+```
 
-1. **Define client tool** in `tool_registry.py`:
-   ```python
-   @tool
-   def my_custom_ui(data: dict) -> str:
-       """AG UI CLIENT TOOL: My custom component"""
-       return "UI rendered"
-   ```
+**3. Restart backend:**
+```bash
+# In Terminal 1
+langgraph dev  # Restart to reload MCP servers
+```
 
-2. **Add to CLIENT_TOOL_REGISTRY**:
-   ```python
-   CLIENT_TOOL_REGISTRY = {
-       # ... existing tools ...
-       "my_custom_ui": my_custom_ui,
-   }
-   ```
-
-3. **Add to DOMAIN_TOOL_MAPPING** in `agent.py` for relevant domains:
-   ```python
-   DOMAIN_TOOL_MAPPING = {
-       "wifi": ["confirmation_dialog", "error_display", "my_custom_ui"],
-       # ...
-   }
-   ```
-
-4. **Advertise in frontend** - Add to `ADVERTISED_CLIENT_TOOLS` in `App.jsx`:
-   ```javascript
-   const ADVERTISED_CLIENT_TOOLS = [
-       'confirmation_dialog',
-       'error_display',
-       'my_custom_ui',  // New tool!
-   ]
-   ```
-
-5. **Create React component** in `App.jsx`:
-   ```jsx
-   function MyCustomUI({ data, onConfirm }) {
-       return <div>...</div>
-   }
-   ```
-
-6. **Add to tool-to-component mapping** in `App.jsx`:
-   ```javascript
-   if (toolName === 'my_custom_ui') {
-       setInterruptType('my_custom')
-       setInterruptData(toolArgs)
-   }
-   ```
-
-7. **Render in interrupt panel**:
-   ```jsx
-   {interrupt && interruptType === 'my_custom' && (
-       <MyCustomUI data={interruptData} onConfirm={handleConfirm} />
-   )}
-   ```
-
----
-
-## 📚 Learn More
-
-### LangGraph
-- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
-- [Human-in-the-Loop Middleware](https://langchain-ai.github.io/langgraph/middleware/human-in-the-loop/)
-- [LangGraph Dev Server](https://langchain-ai.github.io/langgraph/cli/)
-
-### AG UI
-- [AG UI Specification](https://github.com/assistant-ui/ag-ui)
-- [LangGraph SDK](https://github.com/langchain-ai/langgraph-sdk)
-
-### Architecture Patterns
-- [Deepagents](https://github.com/langchain-ai/deepagents) - Multi-agent patterns and middleware
-- [Subagent Patterns](https://langchain-ai.github.io/langgraph/patterns/subagents/)
+✅ **MCP servers can be updated independently** - just restart `langgraph dev`!
 
 ---
 
 ## 🐛 Troubleshooting
 
-### "Failed to connect to LangGraph server"
-- ✅ Make sure `langgraph dev` is running in Terminal 1
-- ✅ Check that port 2024 isn't in use: `lsof -ti:2024`
-- ✅ Verify you're in the virtual environment: `which python` should show `.venv`
+| Issue | Fix |
+|-------|-----|
+| "Failed to connect" | Check `langgraph dev` is running on port 2024 |
+| "ANTHROPIC_API_KEY not found" | Create `.env` file in project root |
+| Tools not working | Check logs for `📥 Middleware received:` to see what tools are injected |
+| Video player not showing | Restart `langgraph dev` after changing `agent.py` |
 
-### "ANTHROPIC_API_KEY not found"
-- ✅ Create `.env` file: `echo "ANTHROPIC_API_KEY=sk-..." > .env`
-- ✅ Make sure `.env` is in the project root (same folder as `agent.py`)
-
-### Interrupts not appearing in frontend
-- ✅ Check browser console for errors (F12)
-- ✅ Verify tool name matches in `App.jsx` mapping
-- ✅ Check that HITL middleware has `interrupt_on={"tool_name": True}`
-
-### Video player not showing
-- ✅ Make sure you restarted `langgraph dev` after changing `agent.py`
-- ✅ Check browser console for "Video player detected" log
-- ✅ Verify `play_video` is in `ADVERTISED_CLIENT_TOOLS` in `App.jsx`
-
-### Agent not calling tools
-- ✅ Test in LangGraph Studio first: `http://localhost:2024`
-- ✅ Use explicit prompts: "restart my router" or "show me the matrix"
-- ✅ Check agent logs in the `langgraph dev` terminal
+**Debug tip:** Watch terminal logs for emoji markers (📤 📥 🔧) showing tool flow.
 
 ---
 
-## 💡 Tips
+## 📚 Learn More
 
-1. **Test in Studio first** - Use LangGraph Studio to verify agent logic before testing frontend
-2. **Check console logs** - Frontend logs all interrupts and tool calls
-3. **Use explicit prompts** - Be specific in user requests to trigger the right tools
-4. **Restart dev server** - After `agent.py` changes, restart `langgraph dev`
+- **LangGraph:** [Docs](https://langchain-ai.github.io/langgraph/) | [HITL Middleware](https://langchain-ai.github.io/langgraph/middleware/human-in-the-loop/)
+- **MCP:** [Protocol Docs](https://modelcontextprotocol.io/) | [LangChain MCP Docs](https://docs.langchain.com/oss/python/langchain/mcp) | [FastMCP](https://github.com/jlowin/fastmcp)
+- **AG UI:** [Specification](https://github.com/assistant-ui/ag-ui)
+- **Patterns:** [Deepagents](https://github.com/langchain-ai/deepagents) | [Subagents](https://langchain-ai.github.io/langgraph/patterns/subagents/)
+
+---
+
+## 💡 Key Takeaways
+
+✅ **MCP integration** - Each domain has dedicated MCP server (Comcast pattern!)  
+✅ **Version-agnostic backend** - Works with v1.0 and v2.0 simultaneously  
+✅ **Dynamic tool injection** - Agents only get tools client supports  
+✅ **Domain isolation** - WiFi agent never sees video tools  
+✅ **Interrupt propagation** - Subagent pauses surface to UI automatically  
+✅ **AG UI pattern** - Tool calls → React components  
+✅ **Production-ready** - Clean separation: MCP tools (backend) + Client tools (frontend)
+
+**Perfect for:** Multi-agent systems, customer service apps, platforms with multiple client versions
+
+**Better than microservices:** Single deployment, no HTTP overhead, easier debugging, full state management
 
 ---
 
 ## 📄 License
 
-MIT
+MIT - Fork and adapt for your use case!
 
----
-
-## 🤝 Contributing
-
-This is an example project. Feel free to fork and adapt for your use case!
-
-For questions about LangGraph, see the [LangGraph Discord](https://discord.gg/langchain).
+Questions? Join [LangChain Discord](https://discord.gg/langchain)
