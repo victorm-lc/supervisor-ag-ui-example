@@ -9,6 +9,6 @@ dependencies = [
     "langchain-anthropic>=1.0.0",
     "langchain-mcp-adapters>=0.1.12",
     "langgraph>=1.0.1",
-    "langgraph-cli[inmem]>=0.4.4",
+    "langgraph-cli[inmem]>=0.4.5",
     "mcp>=1.20.0",
 ]

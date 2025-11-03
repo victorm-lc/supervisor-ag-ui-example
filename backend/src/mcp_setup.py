@@ -41,6 +41,11 @@ mcp_client = MultiServerMCPClient(
 )
 
 
+async def _fetch_mcp_tools():
+    """Fetch tools from all configured MCP servers."""
+    return await mcp_client.get_tools()
+
+
 def load_mcp_tools():
     """
     Load tools from MCP servers synchronously.
@@ -48,12 +53,20 @@ def load_mcp_tools():
     Called at module import time to initialize the agents.
     Returns separate lists for WiFi and Video domain tools.
     """
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        mcp_tools = loop.run_until_complete(mcp_client.get_tools())
-    finally:
-        loop.close()
+        # Prefer asyncio.run so we don't disturb the global event loop
+        mcp_tools = asyncio.run(_fetch_mcp_tools())
+    except RuntimeError as exc:
+        # asyncio.run() cannot be called from a running loop (e.g. during tests).
+        # Fall back to a dedicated loop without mutating the global policy.
+        if "asyncio.run() cannot be called" not in str(exc):
+            raise
+        loop = asyncio.new_event_loop()
+        try:
+            mcp_tools = loop.run_until_complete(_fetch_mcp_tools())
+        finally:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.close()
     
     # Separate MCP tools by domain
     wifi_mcp_tools = [t for t in mcp_tools if t.name in ["wifi_diagnostic", "restart_router"]]

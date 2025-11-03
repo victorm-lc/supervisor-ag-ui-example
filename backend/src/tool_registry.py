@@ -106,7 +106,7 @@ def play_video(
         "type": "video_player",
         "video_url": "https://www.youtube.com/embed/yVinK_ZIrt0?si=r9f67hrOSgwhiIe9",
         "title": title,
-        "video_": video_id,
+        "video_": video_id
     }
 
 
