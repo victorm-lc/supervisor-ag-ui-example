@@ -17,8 +17,9 @@ Your app has v1.0, v2.0, v3.0 in the wild with different UI capabilities. How do
 ## ⚡ Quick Start
 
 ```bash
-# 1. Setup
-echo "ANTHROPIC_API_KEY=your_key" > .env
+# 1. Setup backend
+cd backend
+cp .env.example .env  # Then add your real API key
 uv venv && source .venv/bin/activate
 uv sync
 
@@ -66,7 +67,7 @@ Frontend (v1.0+) → Supervisor Agent
 Each domain has its own MCP server with backend tools:
 
 ```python
-# mcp_servers/wifi_server.py
+# backend/src/mcp_servers/wifi_server.py
 from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("WiFi Gateway")
 
@@ -82,12 +83,12 @@ def restart_router(router_id: str = "primary") -> str:
 Agents connect via `langchain-mcp-adapters`:
 
 ```python
-# agent.py
+# backend/src/mcp_setup.py
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 mcp_client = MultiServerMCPClient({
-    "wifi": {"transport": "stdio", "command": "python", "args": ["mcp_servers/wifi_server.py"]},
-    "video": {"transport": "stdio", "command": "python", "args": ["mcp_servers/video_server.py"]},
+    "wifi": {"transport": "stdio", "command": "python", "args": ["src/mcp_servers/wifi_server.py"]},
+    "video": {"transport": "stdio", "command": "python", "args": ["src/mcp_servers/video_server.py"]},
 })
 
 mcp_tools = await mcp_client.get_tools()
@@ -109,7 +110,7 @@ client.runs.stream(threadId, 'supervisor', {
 ```
 
 ```python
-# agent.py - Backend
+# backend/src/middleware.py - Backend
 DOMAIN_TOOL_MAPPING = {
     "wifi": ["confirmation_dialog", "network_status_display"],
     "video": ["confirmation_dialog", "play_video"],
@@ -138,6 +139,7 @@ def play_video(video_id: str, title: str):
 Subagent interrupts surface to UI via `runtime.config`:
 
 ```python
+# backend/src/wifi_agent.py
 @tool
 async def handle_wifi_request(request: str, runtime: ToolRuntime):
     result = await wifi_agent.ainvoke(
@@ -152,13 +154,23 @@ async def handle_wifi_request(request: str, runtime: ToolRuntime):
 ## 📁 Project Structure
 
 ```
-├── agent.py                # Supervisor + subagents + MCP client (~440 lines)
-├── tool_registry.py        # Client tools (shared FE/BE registry)
-├── mcp_servers/
-│   ├── wifi_server.py      # WiFi backend tools (MCP server)
-│   └── video_server.py     # Video backend tools (MCP server)
-└── frontend/
-    └── src/App.jsx         # Tool advertisement + AG UI rendering
+backend/
+├── src/
+│   ├── supervisor.py       # Main entry point - supervisor agent
+│   ├── wifi_agent.py       # WiFi domain specialist
+│   ├── video_agent.py      # Video domain specialist
+│   ├── middleware.py       # Shared tool filtering middleware
+│   ├── mcp_setup.py        # MCP client initialization
+│   ├── tool_registry.py    # Client tools (shared FE/BE contract)
+│   └── mcp_servers/
+│       ├── wifi_server.py  # WiFi backend tools (MCP server)
+│       └── video_server.py # Video backend tools (MCP server)
+├── langgraph.json          # LangGraph config
+└── pyproject.toml          # Python dependencies
+
+frontend/
+└── src/
+    └── App.jsx             # Tool advertisement + AG UI rendering
 ```
 
 ---
@@ -199,7 +211,7 @@ async def handle_wifi_request(request: str, runtime: ToolRuntime):
 
 ### Add a Client Tool (Frontend UI)
 
-**1. Define:** `tool_registry.py`
+**1. Define:** `backend/src/tool_registry.py`
 ```python
 @tool
 def my_ui(data: dict) -> str:
@@ -209,40 +221,40 @@ def my_ui(data: dict) -> str:
 CLIENT_TOOL_REGISTRY["my_ui"] = my_ui
 ```
 
-**2. Map:** `agent.py`
+**2. Map:** `backend/src/middleware.py`
 ```python
 DOMAIN_TOOL_MAPPING = {
     "wifi": ["confirmation_dialog", "my_ui"],  # Add here
 }
 ```
 
-**3. Advertise:** `App.jsx`
+**3. Advertise:** `frontend/src/App.jsx`
 ```javascript
 const ADVERTISED_CLIENT_TOOLS = ['confirmation_dialog', 'my_ui']
 ```
 
-**4. Render:** `App.jsx`
+**4. Render:** `frontend/src/App.jsx`
 ```javascript
 {interrupt && interruptType === 'my_ui' && <MyUI data={interruptData} />}
 ```
 
 ### Add an MCP Tool (Backend Service)
 
-**1. Define:** `mcp_servers/wifi_server.py`
+**1. Define:** `backend/src/mcp_servers/wifi_server.py`
 ```python
 @mcp.tool()
 def check_modem(modem_id: str) -> str:
     return "Modem online"
 ```
 
-**2. Use:** `agent.py`
+**2. Use:** `backend/src/mcp_setup.py`
 ```python
 wifi_mcp_tools = [t for t in mcp_tools if t.name in [
     "wifi_diagnostic", "restart_router", "check_modem"  # ← Add
 ]]
 ```
 
-**3. Restart:** `langgraph dev`
+**3. Restart:** `cd backend && langgraph dev`
 
 ---
 
@@ -251,9 +263,11 @@ wifi_mcp_tools = [t for t in mcp_tools if t.name in [
 | Issue | Fix |
 |-------|-----|
 | "Failed to connect" | `langgraph dev` running on port 2024? |
-| "ANTHROPIC_API_KEY not found" | Create `.env` file |
+| "ANTHROPIC_API_KEY not found" | Create `backend/.env` file |
+| "Thread not found (404)" | Click "Clear Chat" button (server was restarted) |
 | Tools not working | Check logs for `📥 Middleware received:` |
-| Video not showing | Restart `langgraph dev` |
+| Video not showing | Restart `langgraph dev` in backend directory |
+| Import errors | Run `cd backend && uv sync` |
 
 **Tip:** Watch logs for 📤📥🔧 emojis showing tool flow.
 
@@ -269,7 +283,7 @@ wifi_mcp_tools = [t for t in mcp_tools if t.name in [
 ---
 
 ## 💡 Key Takeaways
-
+ 
 ✅ **MCP per domain** - Each domain has dedicated MCP server (production pattern!)  
 ✅ **Version-agnostic** - Works with v1.0, v2.0, v3.0 simultaneously  
 ✅ **Dynamic filtering** - Agents only get tools client supports  
@@ -281,10 +295,4 @@ wifi_mcp_tools = [t for t in mcp_tools if t.name in [
 
 **Better than microservices:** Single deployment, no HTTP, easier debugging, full state management
 
----
-
-## 📄 License
-
-MIT - Fork it!
-
-Questions? [LangChain Discord](https://discord.gg/langchain)
+**Easy to extend:** Add new domain? Create `billing_agent.py`, import shared middleware, done!

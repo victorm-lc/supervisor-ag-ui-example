@@ -162,18 +162,44 @@ function App() {
 
   const client = new Client({ apiUrl: 'http://localhost:2024' })
 
+  // Helper: Parse video player data from tool messages
+  const parseVideoPlayer = (content) => {
+    if (typeof content === 'string') {
+      try {
+        const parsed = JSON.parse(content)
+        if (parsed?.type === 'video_player') return parsed
+      } catch (e) {
+        // Not JSON, ignore
+      }
+    } else if (typeof content === 'object' && content?.type === 'video_player') {
+      return content
+    }
+    return null
+  }
+
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Initialize thread on mount
+  // Initialize thread on mount (with persistence)
   useEffect(() => {
     const initThread = async () => {
       try {
-        const thread = await client.threads.create()
-        setThreadId(thread.thread_id)
-        console.log('Thread created:', thread.thread_id)
+        // Check if we have a stored thread ID
+        const storedThreadId = localStorage.getItem('langgraph_thread_id')
+        
+        if (storedThreadId) {
+          // Reuse existing thread
+          setThreadId(storedThreadId)
+          console.log('Restored thread:', storedThreadId)
+        } else {
+          // Create new thread
+          const thread = await client.threads.create()
+          setThreadId(thread.thread_id)
+          localStorage.setItem('langgraph_thread_id', thread.thread_id)
+          console.log('Thread created:', thread.thread_id)
+        }
       } catch (error) {
         console.error('Failed to create thread:', error)
         setMessages([
@@ -219,47 +245,21 @@ function App() {
         console.log('Stream chunk:', chunk.event, chunk.data) // Debug log
         
         // Handle different event types
-        if (chunk.event === 'messages/partial') {
+        if (chunk.event === 'messages/partial' || chunk.event === 'messages/complete') {
           const message = chunk.data?.[0]
           const content = message?.content
           
           // Check if this is a tool message with return_direct (like play_video)
-          if (message?.type === 'tool' && typeof content === 'string') {
-            try {
-              const parsed = JSON.parse(content)
-              if (parsed?.type === 'video_player') {
-                console.log('Video player detected (tool message):', parsed)
-                setVideoPlayer(parsed)
-              }
-            } catch (e) {
-              // Not JSON, ignore
+          if (message?.type === 'tool') {
+            const videoData = parseVideoPlayer(content)
+            if (videoData) {
+              console.log('Video player detected:', videoData)
+              setVideoPlayer(videoData)
             }
           } else if (content && typeof content === 'string') {
             assistantMessage = content
           } else if (Array.isArray(content)) {
             assistantMessage = content.map(c => c.text || '').join('')
-          }
-        } else if (chunk.event === 'messages/complete') {
-          const message = chunk.data?.[0]
-          const content = message?.content
-          
-          // Check if this is a tool message with return_direct
-          if (message?.type === 'tool' && typeof content === 'string') {
-            try {
-              const parsed = JSON.parse(content)
-              if (parsed?.type === 'video_player') {
-                console.log('Video player detected (tool message complete):', parsed)
-                setVideoPlayer(parsed)
-              }
-            } catch (e) {
-              // Not JSON, continue
-            }
-          } else if (content && typeof content === 'string') {
-            assistantMessage = content
-          } else if (typeof content === 'object' && content?.type === 'video_player') {
-            // Direct object format
-            console.log('Video player detected (object):', content)
-            setVideoPlayer(content)
           }
         }
 
@@ -325,10 +325,19 @@ function App() {
       }
     } catch (error) {
       console.error('Error sending message:', error)
-      setMessages((prev) => [
-        ...prev,
-        { role: 'system', content: `❌ Error: ${error.message}` },
-      ])
+      
+      // Friendly message for 404 (thread not found - server restarted)
+      if (error.message?.includes('404') || error.status === 404) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'system', content: '❌ Thread not found. The server may have been restarted. Try clicking "Clear Chat" to start fresh.' },
+        ])
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'system', content: `❌ Error: ${error.message}` },
+        ])
+      }
     } finally {
       setIsLoading(false)
     }
@@ -346,11 +355,22 @@ function App() {
 
     try {
       // Resume with the selected option
-      // The agent will receive the user's choice and continue execution
+      // CRITICAL: Send the user's actual choice to the backend!
+      const actionRequest = interrupt.value?.action_requests?.[0]
       const stream = client.runs.stream(threadId, 'supervisor', {
         command: {
           resume: {
-            decisions: [{ type: 'approve' }],
+            decisions: [{ 
+              type: 'approve',
+              // Include the user's selected option in the tool input
+              editedAction: {
+                name: actionRequest?.name,
+                args: {
+                  ...actionRequest?.args,
+                  selected_option: selectedOption  // ✅ Send user's choice!
+                }
+              }
+            }],
           },
         },
         config: {
@@ -430,10 +450,19 @@ function App() {
       }
     } catch (error) {
       console.error('Error confirming:', error)
-      setMessages((prev) => [
-        ...prev,
-        { role: 'system', content: `❌ Error: ${error.message}` },
-      ])
+      
+      // Friendly message for 404
+      if (error.message?.includes('404') || error.status === 404) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'system', content: '❌ Thread not found. The server may have been restarted. Try clicking "Clear Chat" to start fresh.' },
+        ])
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'system', content: `❌ Error: ${error.message}` },
+        ])
+      }
     } finally {
       setIsLoading(false)
     }
@@ -494,10 +523,19 @@ function App() {
       setInterruptData(null)
     } catch (error) {
       console.error('Error cancelling:', error)
-      setMessages((prev) => [
-        ...prev,
-        { role: 'system', content: `❌ Error: ${error.message}` },
-      ])
+      
+      // Friendly message for 404
+      if (error.message?.includes('404') || error.status === 404) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'system', content: '❌ Thread not found. The server may have been restarted. Try clicking "Clear Chat" to start fresh.' },
+        ])
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'system', content: `❌ Error: ${error.message}` },
+        ])
+      }
     } finally {
       setIsLoading(false)
     }
@@ -597,20 +635,51 @@ function App() {
       }
     } catch (error) {
       console.error('Error approving action:', error)
-      setMessages((prev) => [
-        ...prev,
-        { role: 'system', content: `❌ Error: ${error.message}` },
-      ])
+      
+      // Friendly message for 404
+      if (error.message?.includes('404') || error.status === 404) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'system', content: '❌ Thread not found. The server may have been restarted. Try clicking "Clear Chat" to start fresh.' },
+        ])
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'system', content: `❌ Error: ${error.message}` },
+        ])
+      }
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // Clear chat and start new thread
+  const clearChat = async () => {
+    try {
+      const thread = await client.threads.create()
+      setThreadId(thread.thread_id)
+      localStorage.setItem('langgraph_thread_id', thread.thread_id)
+      setMessages([])
+      setInterrupt(null)
+      setInterruptType(null)
+      setInterruptData(null)
+      setVideoPlayer(null)
+      console.log('New thread created:', thread.thread_id)
+    } catch (error) {
+      console.error('Failed to create new thread:', error)
     }
   }
 
   return (
     <div className="app">
       <header className="header">
-        <h1>🏠 Example Everything App</h1>
-        <p>Powered by LangGraph + AG UI | Supervisor + Domain Subagents</p>
+        <div>
+          <h1>🏠 Example Everything App</h1>
+          <p>Powered by LangGraph + AG UI | Supervisor + Domain Subagents</p>
+        </div>
+        <button onClick={clearChat} className="clear-btn" disabled={!threadId}>
+          🗑️ Clear Chat
+        </button>
       </header>
 
       <div className="chat-container">

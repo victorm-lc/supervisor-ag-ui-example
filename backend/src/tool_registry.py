@@ -38,7 +38,8 @@ from langchain_core.tools import tool
 @tool
 def confirmation_dialog(
     message: Annotated[str, "Message to display in the confirmation dialog"],
-    options: Annotated[list[str], "List of options for the user to choose from"]
+    options: Annotated[list[str], "List of options for the user to choose from"],
+    selected_option: Annotated[str, "The option selected by the user (filled after user interaction)"] = None
 ) -> str:
     """
     AG UI CLIENT TOOL: Display a confirmation dialog in the frontend.
@@ -46,12 +47,18 @@ def confirmation_dialog(
     This tool triggers the ConfirmationDialog React component.
     The agent execution pauses (HITL interrupt) until the user selects an option.
     
+    When the user selects an option in the frontend, it's sent back via the
+    selected_option parameter during the resume phase.
+    
     Universal tool - available to all domains.
     """
+    # If we have a selected option, the user has responded
+    if selected_option:
+        return f"✅ User selected: {selected_option}"
+    
     # This will be intercepted by HITL middleware before execution
     # The frontend will render a ConfirmationDialog component
-    # User selection will be passed back via the interrupt resume
-    return f"✅ User confirmed: {options[0]}"
+    return f"Showing confirmation dialog with options: {options}"
 
 
 @tool
