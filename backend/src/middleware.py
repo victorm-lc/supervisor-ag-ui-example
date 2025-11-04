@@ -45,7 +45,7 @@ class AgentContext:
 # =============================================================================
 
 DOMAIN_TOOL_MAPPING = {
-    "wifi": ["confirmation_dialog", "error_display", "network_status_display"],
+    "wifi": ["error_display", "network_status_display"],
     "video": ["confirmation_dialog", "error_display", "play_video"],
 }
 
