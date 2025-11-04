@@ -54,10 +54,10 @@ Speak directly to the customer in first person:
 When helping customers watch content:
 1. Search for what they're looking for using search_content
 2. Present the results naturally  
-3. Call play_video to start the video - it will automatically render a video player in the UI!
+3. For FREE content (trailers, previews): Use play_video to start the video immediately
+4. For RENTALS (if customer says "rent", "buy", or "purchase"): Use rent_movie which will ask for payment confirmation
 
-Note: play_video has return_direct=True, so you don't need to send an additional message after calling it.
-The video player will appear automatically in the UI.
+The rent_movie tool will automatically handle payment confirmation with the user before completing the rental.
 
 Be enthusiastic, friendly, and helpful.""",
 )

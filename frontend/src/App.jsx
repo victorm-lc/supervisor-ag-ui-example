@@ -52,6 +52,7 @@ const ADVERTISED_CLIENT_TOOLS = [
   'error_display',
   'network_status_display',
   'play_video',  // return_direct=True - renders video player immediately!
+  'rent_movie',  // interrupt() inside tool - payment confirmation
 ]
 
 // =============================================================================
@@ -141,6 +142,47 @@ function VideoPlayer({ videoUrl, title, onClose }) {
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
         />
+      </div>
+    </div>
+  )
+}
+
+// =============================================================================
+// AG UI COMPONENT: Rental Payment
+// Triggered by: rent_movie tool call with interrupt()
+// =============================================================================
+function RentalPayment({ data, onApprove, onCancel }) {
+  return (
+    <div className="rental-payment-panel">
+      <div className="rental-payment-card">
+        <div className="rental-header">
+          <span>🎬</span>
+          <h3>Rent Movie</h3>
+        </div>
+        <div className="rental-details">
+          <p className="movie-title">{data.title}</p>
+          <div className="rental-info">
+            <div className="info-row">
+              <span className="label">Rental Period:</span>
+              <span className="value">{data.rental_period || '48 hours'}</span>
+            </div>
+            <div className="info-row">
+              <span className="label">Price:</span>
+              <span className="value price">${data.rental_price?.toFixed(2)}</span>
+            </div>
+          </div>
+          <p className="rental-note">
+            💡 You'll have access to this movie for 48 hours after purchase
+          </p>
+        </div>
+        <div className="rental-actions">
+          <button onClick={onApprove} className="rent-btn">
+            Rent Now - ${data.rental_price?.toFixed(2)}
+          </button>
+          <button onClick={onCancel} className="cancel-btn">
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -279,11 +321,28 @@ function App() {
       if (currentInterrupt) {
         setInterrupt(currentInterrupt)
         
-        // All interrupts come from HITL middleware
-        const actionRequest = currentInterrupt.value?.action_requests?.[0]
-        console.log('Action request:', actionRequest)
+        /*
+         * TWO TYPES OF INTERRUPTS:
+         * 1. HITL Middleware: value.action_requests[0] contains tool call info
+         * 2. Direct interrupt(): value directly contains the interrupt data with a 'type' field
+         */
         
-        if (actionRequest) {
+        // Check for HITL middleware interrupt (action_requests)
+        const actionRequest = currentInterrupt.value?.action_requests?.[0]
+        
+        // Check for direct interrupt() call (has 'type' field)
+        const directInterruptType = currentInterrupt.value?.type
+        
+        console.log('Action request:', actionRequest)
+        console.log('Direct interrupt type:', directInterruptType)
+        
+        // Handle direct interrupt() calls (like rent_movie)
+        if (directInterruptType) {
+          setInterruptType(directInterruptType)
+          setInterruptData(currentInterrupt.value)
+        }
+        // Handle HITL middleware interrupts
+        else if (actionRequest) {
           const toolName = actionRequest.name
           const toolArgs = actionRequest.args
           console.log('Tool name:', toolName, 'Tool args:', toolArgs)
@@ -418,8 +477,17 @@ function App() {
       if (currentInterrupt) {
         setInterrupt(currentInterrupt)
         
+        // Check for direct interrupt() call (has 'type' field)
+        const directInterruptType = currentInterrupt.value?.type
         const actionRequest = currentInterrupt.value?.action_requests?.[0]
-        if (actionRequest) {
+        
+        // Handle direct interrupt() calls (like rent_movie)
+        if (directInterruptType) {
+          setInterruptType(directInterruptType)
+          setInterruptData(currentInterrupt.value)
+        }
+        // Handle HITL middleware interrupts
+        else if (actionRequest) {
           const toolName = actionRequest.name
           const toolArgs = actionRequest.args
           
@@ -552,11 +620,14 @@ function App() {
     ])
 
     try {
+      // For rental payments, pass approval flag directly to interrupt()
+      const resumeValue = interruptType === 'rental_payment' 
+        ? { approved: true }
+        : { decisions: [{ type: 'approve' }] }
+
       const stream = client.runs.stream(threadId, 'supervisor', {
         command: {
-          resume: {
-            decisions: [{ type: 'approve' }],
-          },
+          resume: resumeValue,
         },
         config: {
           configurable: {
@@ -603,8 +674,17 @@ function App() {
       if (currentInterrupt) {
         setInterrupt(currentInterrupt)
         
+        // Check for direct interrupt() call (has 'type' field)
+        const directInterruptType = currentInterrupt.value?.type
         const actionRequest = currentInterrupt.value?.action_requests?.[0]
-        if (actionRequest) {
+        
+        // Handle direct interrupt() calls (like rent_movie)
+        if (directInterruptType) {
+          setInterruptType(directInterruptType)
+          setInterruptData(currentInterrupt.value)
+        }
+        // Handle HITL middleware interrupts
+        else if (actionRequest) {
           const toolName = actionRequest.name
           const toolArgs = actionRequest.args
           
@@ -739,11 +819,21 @@ function App() {
 
         {interrupt && interruptType === 'router_restart' && (
           <div className="interrupt-panel">
+            {/* Simple approve, no editing needed */}
             <RouterRestartConfirmation
-              onConfirm={() => handleConfirmationSelect('Yes, restart')}
+              onConfirm={handleApprove}
               onCancel={handleCancel}
             />
           </div>
+        )}
+
+        {/* Rental Payment Confirmation */}
+        {interruptType === 'rental_payment' && interruptData && (
+          <RentalPayment
+            data={interruptData}
+            onApprove={handleApprove}
+            onCancel={handleCancel}
+          />
         )}
 
         {interrupt && interruptType === 'tool_approval' && (

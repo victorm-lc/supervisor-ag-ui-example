@@ -30,6 +30,7 @@ Web v1.0 advertises: ['confirmation_dialog', 'error_display', 'play_video', 'net
 
 from typing import Annotated
 from langchain_core.tools import tool
+from langgraph.types import interrupt
 
 # =============================================================================
 # AG UI CLIENT TOOL IMPLEMENTATIONS
@@ -110,6 +111,37 @@ def play_video(
     }
 
 
+@tool
+def rent_movie(
+    title: Annotated[str, "Title of the movie to rent"],
+    video_id: Annotated[str, "YouTube video ID for the movie"],
+    rental_price: Annotated[float, "Rental price in USD"] = 3.99
+) -> str:
+    """
+    AG UI CLIENT TOOL: Rent a movie with payment confirmation.
+    
+    This tool demonstrates using interrupt() inside a client tool.
+    The interrupt pauses execution and waits for user payment approval.
+    
+    Available in video domain only.
+    """
+    # Interrupt and wait for user payment decision
+    user_decision = interrupt({
+        "type": "rental_payment",
+        "title": title,
+        "video_id": video_id,
+        "rental_price": rental_price,
+        "rental_period": "48 hours",
+        "message": f"Confirm rental of '{title}' for ${rental_price:.2f}"
+    })
+    
+    # Check the decision from resume
+    if user_decision and user_decision.get("approved"):
+        return f"✅ '{title}' rented successfully! You have 48 hours to watch. Rental ID: R-{hash(title) % 100000:05d}"
+    else:
+        return "❌ Rental cancelled by user"
+
+
 # =============================================================================
 # TOOL REGISTRY
 # =============================================================================
@@ -119,6 +151,7 @@ CLIENT_TOOL_REGISTRY = {
     "error_display": error_display,
     "network_status_display": network_status_display,
     "play_video": play_video,
+    "rent_movie": rent_movie,
 }
 
 
