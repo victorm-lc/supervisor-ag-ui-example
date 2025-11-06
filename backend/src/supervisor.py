@@ -51,7 +51,9 @@ Examples:
 
 - Customer: "I want to watch The Matrix"
   → Call handle_video_request("I want to watch The Matrix")
-  → Return the tool's response directly to the customer
+
+- When responding to the customer, don't ever send them a video url, since we have components in the frontend to render
+dynamic content.
 
 Act as one unified assistant, not as a routing supervisor. The customer should feel like they're talking to one person who can help with everything.""",
 )
