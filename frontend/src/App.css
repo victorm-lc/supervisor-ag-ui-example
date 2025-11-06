@@ -693,3 +693,128 @@
 }
 
 
+
+
+/* =============================================================================
+   RENTAL PAYMENT (interrupt inside tool)
+   ============================================================================= */
+
+   .rental-payment-panel {
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    z-index: 1000;
+    animation: slideUp 0.3s ease-out;
+  }
+  
+  .rental-payment-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    padding: 24px;
+    min-width: 380px;
+    border-left: 4px solid #8b5cf6;
+  }
+  
+  .rental-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+    font-size: 1.3em;
+  }
+  
+  .rental-header span {
+    font-size: 1.5em;
+  }
+  
+  .rental-details {
+    margin: 20px 0;
+  }
+  
+  .movie-title {
+    font-size: 1.3em;
+    font-weight: 600;
+    margin-bottom: 15px;
+    color: #1f2937;
+  }
+  
+  .rental-info {
+    background: #f9fafb;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+  }
+  
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  
+  .info-row:last-child {
+    margin-bottom: 0;
+  }
+  
+  .label {
+    color: #6b7280;
+    font-size: 0.95em;
+  }
+  
+  .value {
+    font-weight: 600;
+    color: #1f2937;
+  }
+  
+  .value.price {
+    color: #8b5cf6;
+    font-size: 1.2em;
+  }
+  
+  .rental-note {
+    font-size: 0.9em;
+    color: #6b7280;
+    font-style: italic;
+    margin-top: 10px;
+  }
+  
+  .rental-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+  }
+  
+  .rent-btn {
+    flex: 2;
+    background: #8b5cf6;
+    color: white;
+    border: none;
+    padding: 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 1em;
+    transition: background 0.2s;
+  }
+  
+  .rent-btn:hover {
+    background: #7c3aed;
+  }
+  
+  .rental-actions .cancel-btn {
+    flex: 1;
+    background: #e5e7eb;
+    color: #374151;
+    border: none;
+    padding: 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 0.2s;
+  }
+  
+  .rental-actions .cancel-btn:hover {
+    background: #d1d5db;
+  }
+  
+  

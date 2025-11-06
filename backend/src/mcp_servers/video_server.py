@@ -10,7 +10,6 @@ In production, these would call actual video APIs, content databases, or streami
 
 from mcp.server.fastmcp import FastMCP
 from typing import Annotated
-from langgraph.types import interrupt
 
 # Create MCP server for Video domain
 mcp = FastMCP("Video Gateway")
@@ -18,27 +17,30 @@ mcp = FastMCP("Video Gateway")
 
 @mcp.tool()
 def search_content(
-    query: Annotated[str, "Search query for video content"],
-    content_type: Annotated[str, "Type of content (movie, show, documentary)"] = "any"
+    query: Annotated[str, "Search query for video content"]
 ) -> str:
     """
-    Search the video catalog for content.
+    Search for video content in the catalog. Returns information about matching content.
     
-    In production, this would:
-    - Query video content API
-    - Search across multiple streaming platforms
-    - Return real availability, ratings, descriptions
-    - Check user's subscription entitlements
+    This tool ONLY provides information about available content. To actually watch/rent
+    the content, you MUST use the rent_movie tool afterwards with the exact title.
+    
+    Args:
+        query: Search terms (e.g., "matrix", "nature", "comedy", "dogs")
+    
+    Returns:
+        Information about the matching content including title, type, year, rating,
+        description, and rental price. Does NOT include video URL - use rent_movie to get access.
     """
-    # Simulate content search results with YouTube embed URLs
-    # In production, these would be real content URLs from your video platform
+    # Simulate content search results
+    # In production, this would query a real content database
     mock_catalog = {
         "matrix": {
             "title": "The Matrix",
             "type": "movie",
             "year": 1999,
             "rating": "R",
-            "video_url": "https://www.youtube.com/embed/vKQi3bBA1y8",  # Matrix trailer
+            "rental_price": 3.99,
             "description": "A computer hacker learns the true nature of reality"
         },
         "nature": {
@@ -46,7 +48,7 @@ def search_content(
             "type": "documentary",
             "year": 2016,
             "rating": "TV-G",
-            "video_url": "https://www.youtube.com/embed/c8aFcHFu8QM",  # Planet Earth II trailer
+            "rental_price": 2.99,
             "description": "Stunning wildlife documentary series"
         },
         "comedy": {
@@ -54,7 +56,7 @@ def search_content(
             "type": "show",
             "year": 2005,
             "rating": "TV-14",
-            "video_url": "https://www.youtube.com/embed/LHOtME2DL4g",  # The Office trailer
+            "rental_price": 1.99,
             "description": "Mockumentary about office workers"
         },
         "dog": {
@@ -62,7 +64,7 @@ def search_content(
             "type": "video",
             "year": 2023,
             "rating": "G",
-            "video_url": "https://www.youtube.com/embed/j5a0jTc9S10",  # Cute dogs video
+            "rental_price": 0.99,
             "description": "Adorable dogs doing funny things"
         }
     }
@@ -74,11 +76,10 @@ def search_content(
             return f"""Found: {content['title']} ({content['year']})
 Type: {content['type'].title()}
 Rating: {content['rating']}
+Rental Price: ${content['rental_price']}
 Description: {content['description']}
 
-🎬 Ready to play! To watch this content, use the play_video tool with:
-- title: "{content['title']}"
-- video_url: {content['video_url']}"""
+To rent and watch this content, use the rent_movie tool with the title: "{content['title']}" """
     
     # No match found
     return f"No exact matches found for '{query}'. Try searching for 'matrix', 'nature documentaries', 'comedy shows', or 'dogs'."
@@ -86,33 +87,51 @@ Description: {content['description']}
 
 @mcp.tool()
 def rent_movie(
-    title: Annotated[str, "Title of the movie to rent"],
-    video_url: Annotated[str, "YouTube embed URL for the movie"],
-    rental_price: Annotated[float, "Rental price in USD"] = 3.99,
+    title: Annotated[str, "Exact title of the movie to rent (from search_content results)"],
     selected_option: Annotated[str, "User's confirmation decision (e.g., 'Yes, Rent', 'Cancel')"] = None
 ) -> str:
     """
-    Rent a movie with payment confirmation.
+    Rent a movie and get the video URL to play it. Requires user approval before processing payment.
     
-    Uses middleware-based HITL pattern (configured in video_agent.py).
-    The HumanInTheLoopMiddleware intercepts this tool and pauses for user approval.
+    IMPORTANT: Always call search_content first to find the movie, then call this tool with
+    the exact title from search results to complete the rental and get the video URL.
     
-    Note: interrupt() cannot be called inside MCP tools because they run in a 
-    separate process without access to the LangGraph runnable context.
+    This tool triggers a human-in-the-loop confirmation (configured in video_agent.py).
+    The HumanInTheLoopMiddleware intercepts this tool call and pauses for user approval
+    before actually processing the rental.
     
-    In production, this would:
-    - Process payment through payment gateway
-    - Grant temporary viewing rights
-    - Send confirmation email
-    - Log transaction for billing
+    Args:
+        title: Exact title of the content to rent (e.g., "The Matrix")
+        selected_option: User's choice after confirmation prompt (set by middleware)
+    
+    Returns:
+        On success: Rental confirmation with video URL to play the content
+        On cancel: Cancellation message
+    
+    Production behavior:
+        - Process payment through payment gateway
+        - Grant temporary viewing rights
+        - Send confirmation email
+        - Log transaction for billing
     """
     # Check if user approved or cancelled
     if selected_option and "cancel" in selected_option.lower():
         return "❌ Rental cancelled by user"
     
-    # Process rental
+    # Process rental successfully - return the video URL
     rental_id = f"R-{hash(title) % 100000:05d}"
-    return f"✅ '{title}' rented successfully! You have 48 hours to watch. Rental ID: {rental_id}"
+    
+    # For this demo, we use the same video URL for all content
+    # In production, this would return the actual content URL from the video platform
+    demo_video_url = "https://www.youtube.com/embed/vKQi3bBA1y8"
+    
+    return f"""✅ '{title}' rented successfully!
+
+Rental ID: {rental_id}
+Access: 48 hours
+Video URL: {demo_video_url}
+
+You can now watch this content!"""
 
 
 if __name__ == "__main__":
