@@ -43,29 +43,11 @@ def restart_router(
     selected_option: Annotated[str, "The option selected by the user (filled after user interaction)"] = None
 ) -> str:
     """
-    Restart the customer's router.
-    
-    This tool requires user confirmation via the ConfirmationDialog component.
-    The HITL middleware intercepts this tool call and waits for user approval.
-    
-    In production, this would:
-    - Send command to IoT platform
-    - Track restart status
-    - Notify customer when complete
-    - Log action for customer service records
-    
-    ⚠️ This is a sensitive operation that requires user confirmation!
+    This is a tool that restarts the customer's router. You can pass in "primary" as the router id and it will
+    restart the primary router for the user.
     """
-    # If we have a selected option, the user has responded
-    if selected_option:
-        if selected_option == "Yes, Restart Router":
-            return f"✅ Router restart initiated for {router_id}. Your router will be offline for about 2 minutes and then automatically come back online. Your devices should reconnect automatically."
-        else:
-            return "❌ Router restart cancelled by user"
-    
-    # This return is never reached - HITL middleware intercepts before execution
-    # But we include it for clarity about what data the frontend needs
-    return f"Awaiting confirmation to restart router {router_id}"
+
+    return f"✅ Router restart initiated for {router_id}. Your router will be offline for about 2 minutes and then automatically come back online. Your devices should reconnect automatically."
 
 
 if __name__ == "__main__":

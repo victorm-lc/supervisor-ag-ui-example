@@ -23,6 +23,7 @@ from langgraph.graph.ui import AnyUIMessage, ui_message_reducer
 from src.mcp_setup import video_mcp_tools
 from src.middleware import AgentContext
 from src.tool_converter import convert_agui_schemas_to_tools
+from src.subagent_utils import propagate_ui_messages
 
 
 # =============================================================================
@@ -139,13 +140,7 @@ async def handle_video_request(
     )
     
     # Propagate UI messages from subagent to supervisor
-    # The subagent's UI state needs to be pushed to the parent's UI state
-    if result.get("ui"):
-        from langgraph.graph.ui import push_ui_message
-        print(f"🎨 [VIDEO] Propagating {len(result['ui'])} UI messages to supervisor")
-        for ui_msg in result["ui"]:
-            print(f"🎨 [VIDEO] Pushing UI message: {ui_msg['name']} with props {ui_msg['props']}")
-            push_ui_message(ui_msg["name"], ui_msg["props"])
+    propagate_ui_messages(result)
     
     # Return the final message content
     return result["messages"][-1].content

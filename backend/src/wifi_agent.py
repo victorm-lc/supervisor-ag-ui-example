@@ -25,6 +25,7 @@ from langgraph.graph.ui import AnyUIMessage, ui_message_reducer
 from src.mcp_setup import wifi_mcp_tools
 from src.middleware import AgentContext
 from src.tool_converter import convert_agui_schemas_to_tools
+from src.subagent_utils import propagate_ui_messages
 
 
 # =============================================================================
@@ -136,7 +137,9 @@ async def handle_wifi_request(
         config=runtime.config
     )
     
+    # Propagate UI messages from subagent to supervisor
+    propagate_ui_messages(result)
+    
     # Return the final message content
-    # Interrupts automatically propagate through the shared config
     return result["messages"][-1].content
 

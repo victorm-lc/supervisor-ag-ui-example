@@ -134,9 +134,7 @@ def rent_movie(
 
 Rental ID: {rental_id}
 Access: 48 hours
-Video URL: {demo_video_url}
-
-You can now watch this content!"""
+Video URL: {demo_video_url}"""
 
 
 if __name__ == "__main__":
