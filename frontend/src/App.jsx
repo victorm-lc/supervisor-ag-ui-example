@@ -328,7 +328,7 @@ function App() {
               setInterruptType('confirmation')
               setInterruptData({
                 message: 'Are you sure you want to restart your router?',
-                options: ['Yes, Restart Router', 'Cancel'],
+                options: ['Yes, Restart Router'],
                 details: '<strong>⚠️ This will restart your router</strong><br/>Your internet connection will be offline for approximately 2 minutes.'
               })
             }
@@ -488,18 +488,18 @@ function App() {
             setInterruptType('confirmation')
             let confirmationData = {
               message: toolArgs.message || `Confirm ${toolName}?`,
-              options: toolArgs.options || ['Confirm', 'Cancel'],
+              options: toolArgs.options || ['Confirm'],
             }
             
             if (toolName === 'restart_router') {
               confirmationData.details = '<strong>⚠️ This will restart your router</strong><br/>Your internet connection will be offline for approximately 2 minutes.'
               confirmationData.message = 'Are you sure you want to restart your router?'
-              confirmationData.options = ['Yes, Restart Router', 'Cancel']
+              confirmationData.options = ['Yes, Restart Router']
             }
             
             if (toolName === 'rent_movie') {
               confirmationData.message = `Rent "${toolArgs.title}" for $${toolArgs.rental_price?.toFixed(2)}?`
-              confirmationData.options = ['Rent Now', 'Cancel']
+              confirmationData.options = ['Rent Now']
               confirmationData.details = `You'll have access to this movie for 48 hours after purchase.`
             }
             
@@ -695,18 +695,18 @@ function App() {
             setInterruptType('confirmation')
             let confirmationData = {
               message: toolArgs.message || `Confirm ${toolName}?`,
-              options: toolArgs.options || ['Confirm', 'Cancel'],
+              options: toolArgs.options || ['Confirm'],
             }
             
             if (toolName === 'restart_router') {
               confirmationData.details = '<strong>⚠️ This will restart your router</strong><br/>Your internet connection will be offline for approximately 2 minutes.'
               confirmationData.message = 'Are you sure you want to restart your router?'
-              confirmationData.options = ['Yes, Restart Router', 'Cancel']
+              confirmationData.options = ['Yes, Restart Router']
             }
             
             if (toolName === 'rent_movie') {
               confirmationData.message = `Rent "${toolArgs.title}" for $${toolArgs.rental_price?.toFixed(2)}?`
-              confirmationData.options = ['Rent Now', 'Cancel']
+              confirmationData.options = ['Rent Now']
               confirmationData.details = `You'll have access to this movie for 48 hours after purchase.`
             }
             
@@ -828,7 +828,7 @@ function App() {
           <div className="interrupt-panel">
             <ConfirmationDialog
               message={interruptData?.message || 'Please confirm this action'}
-              options={interruptData?.options || ['Confirm', 'Cancel']}
+              options={interruptData?.options || ['Confirm']}
               details={interruptData?.details}
               onConfirm={handleConfirmationSelect}
               onCancel={handleCancel}
