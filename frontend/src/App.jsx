@@ -1,40 +1,52 @@
 import { useState, useEffect, useRef } from 'react'
 import { Client } from '@langchain/langgraph-sdk'
+import { CLIENT_TOOL_SCHEMAS } from './toolSchemas'
 import './App.css'
 
 /*
- * AG UI ARCHITECTURE PATTERN
+ * AG UI + LANGGRAPH GENERATIVE UI PATTERN
  * 
- * This frontend follows the AG UI (Agent-Generated UI) pattern:
+ * This frontend follows the AG UI Protocol with LangGraph's Generative UI:
  * 
- * 1. AGENT TOOL CALLS → FRONTEND COMPONENTS
- *    When the agent calls a "client tool" (e.g., confirmation_dialog),
- *    the frontend detects it and renders the corresponding React component.
+ * 1. TOOL ADVERTISEMENT (AG UI Protocol)
+ *    Frontend advertises which UI tools it can render via tool schemas.
+ *    Backend dynamically creates tools from these schemas.
  * 
- * 2. TOOL-TO-COMPONENT REGISTRY
- *    We map tool names to React components that render the UI.
+ * 2. TOOL EXECUTION → UI MESSAGES
+ *    When agent calls a client tool (e.g., play_video):
+ *    - Tool calls push_ui_message() with props
+ *    - UI message flows through dedicated UI channel
+ *    - Frontend receives structured props (no JSON parsing!)
  * 
- * 3. INTERRUPT-BASED INTERACTION
- *    Client tools trigger HITL interrupts, pausing agent execution.
- *    User interacts with the UI component, then execution resumes.
+ * 3. COMPONENT RENDERING
+ *    Frontend maps UI message names to React components.
+ *    Props are already structured objects ready to render.
  * 
- * 4. DYNAMIC CLIENT TOOL ADVERTISEMENT ✨
- *    Frontend advertises which UI tools it can render in each request.
- *    Backend middleware dynamically filters tools per domain.
- *    This makes the backend version-agnostic:
- *    - Old app version with 2 tools? Works!
- *    - New app version with 5 tools? Works!
- *    - No backend changes needed when adding new client tools!
+ * 4. INTERRUPT-BASED INTERACTION
+ *    Some tools trigger HITL interrupts (e.g., rent_movie).
+ *    User interacts with UI, then execution resumes.
+ * 
+ * 5. VERSION-AGNOSTIC MULTI-CLIENT SUPPORT ✨
+ *    Each client advertises its UI capabilities:
+ *    - Web app: ['play_video', 'network_status']
+ *    - Mobile app: ['play_video'] only
+ *    - CLI: [] (text only)
+ *    Backend adapts based on what client supports.
  * 
  * Flow: 
- *   1. Frontend advertises available tools → 
- *   2. Backend middleware filters by domain → 
- *   3. Agent calls tool → 
- *   4. HITL interrupt → 
- *   5. Frontend renders component →
- *   6. User interacts → 
- *   7. Resume with user's input → 
- *   8. Agent continues
+ *   1. Frontend advertises tool schemas → 
+ *   2. Backend creates tools, filters by domain → 
+ *   3. Agent calls tool (e.g., play_video) → 
+ *   4. Tool pushes UI message → 
+ *   5. Frontend receives via UI channel →
+ *   6. Component renders with structured props → 
+ *   7. User sees UI
+ * 
+ * Benefits:
+ *   ✅ Clean separation: messages vs UI data
+ *   ✅ No JSON parsing or tool message inspection
+ *   ✅ Official LangGraph pattern
+ *   ✅ Full AG UI Protocol compliance
  */
 
 // =============================================================================
@@ -44,22 +56,18 @@ import './App.css'
 // filter which tools are available to each domain agent based on this list.
 // 
 // Example versioning:
-// - v1.0 app: ['confirmation_dialog', 'error_display']
-// - v2.0 app: ['confirmation_dialog', 'error_display', 'network_status_display', 'play_video']
+// - v1.0 app: ['play_video']
+// - v2.0 app: ['play_video', 'network_status_display']
 // - Backend works with both versions automatically!
 const ADVERTISED_CLIENT_TOOLS = [
-  'confirmation_dialog',
-  'error_display',
-  'network_status_display',
-  'play_video',  // return_direct=True - renders video player immediately!
-  'rent_movie',  // interrupt() inside tool - payment confirmation
+  'play_video',  // Pure UI client tool - return_direct=True
 ]
 
 // =============================================================================
 // AG UI COMPONENT: Confirmation Dialog
-// Triggered by: confirmation_dialog tool call
+// Generic confirmation component for backend MCP tools (restart_router, rent_movie)
 // =============================================================================
-function ConfirmationDialog({ message, options, onConfirm, onCancel }) {
+function ConfirmationDialog({ message, options, details, onConfirm, onCancel }) {
   return (
     <div className="confirmation-card">
       <div className="confirmation-header">
@@ -68,6 +76,13 @@ function ConfirmationDialog({ message, options, onConfirm, onCancel }) {
       </div>
       
       <p className="confirmation-message">{message}</p>
+      
+      {/* Optional details section for warnings or additional info */}
+      {details && (
+        <div className="warning-box">
+          <p dangerouslySetInnerHTML={{ __html: details }} />
+        </div>
+      )}
       
       <div className="confirmation-buttons">
         {options.map((option, idx) => (
@@ -79,40 +94,6 @@ function ConfirmationDialog({ message, options, onConfirm, onCancel }) {
             {option}
           </button>
         ))}
-        <button onClick={onCancel} className="btn btn-secondary">
-          Cancel
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// =============================================================================
-// AG UI COMPONENT: Router Restart Confirmation
-// Triggered by: restart_router tool call (shows detailed confirmation)
-// =============================================================================
-function RouterRestartConfirmation({ onConfirm, onCancel }) {
-  return (
-    <div className="confirmation-card router-restart">
-      <div className="confirmation-header">
-        <span className="confirmation-icon">🔄</span>
-        <h3>Router Restart Confirmation</h3>
-      </div>
-      
-      <div className="warning-box">
-        <p><strong>⚠️ This will restart your router</strong></p>
-        <p>Your internet connection will be offline for approximately 2 minutes.</p>
-        <ul>
-          <li>All devices will be disconnected</li>
-          <li>Active downloads will be interrupted</li>
-          <li>Video streams will pause</li>
-        </ul>
-      </div>
-      
-      <div className="confirmation-buttons">
-        <button onClick={onConfirm} className="btn btn-primary">
-          Yes, Restart Router
-        </button>
         <button onClick={onCancel} className="btn btn-secondary">
           Cancel
         </button>
@@ -147,11 +128,7 @@ function VideoPlayer({ videoUrl, title, onClose }) {
   )
 }
 
-// =============================================================================
-// AG UI COMPONENT: Rental Payment
-// Triggered by: rent_movie tool call with interrupt()
-// =============================================================================
-function RentalPayment({ data, onApprove, onCancel }) {
+function RentalPayment({ data, onConfirm, onCancel }) {
   return (
     <div className="rental-payment-panel">
       <div className="rental-payment-card">
@@ -176,7 +153,7 @@ function RentalPayment({ data, onApprove, onCancel }) {
           </p>
         </div>
         <div className="rental-actions">
-          <button onClick={onApprove} className="rent-btn">
+          <button onClick={() => onConfirm('Rent Now')} className="rent-btn">
             Rent Now - ${data.rental_price?.toFixed(2)}
           </button>
           <button onClick={onCancel} className="cancel-btn">
@@ -199,25 +176,10 @@ function App() {
   const [interrupt, setInterrupt] = useState(null)
   const [interruptType, setInterruptType] = useState(null)
   const [interruptData, setInterruptData] = useState(null)
-  const [videoPlayer, setVideoPlayer] = useState(null)  // For play_video return_direct
+  const [videoPlayer, setVideoPlayer] = useState(null)  // For play_video
   const messagesEndRef = useRef(null)
 
   const client = new Client({ apiUrl: 'http://localhost:2024' })
-
-  // Helper: Parse video player data from tool messages
-  const parseVideoPlayer = (content) => {
-    if (typeof content === 'string') {
-      try {
-        const parsed = JSON.parse(content)
-        if (parsed?.type === 'video_player') return parsed
-      } catch (e) {
-        // Not JSON, ignore
-      }
-    } else if (typeof content === 'object' && content?.type === 'video_player') {
-      return content
-    }
-    return null
-  }
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -269,39 +231,59 @@ function App() {
 
     try {
       // Stream the agent's response
-      // DYNAMIC TOOL ADVERTISEMENT: Send available client tools via config
+      // DYNAMIC TOOL ADVERTISEMENT: Send tool schemas from frontend
+      const filteredSchemas = CLIENT_TOOL_SCHEMAS.filter(s => 
+        ADVERTISED_CLIENT_TOOLS.includes(s.name)
+      )
       const stream = client.runs.stream(threadId, 'supervisor', {
         input: { messages: [{ role: 'user', content: userMessage }] },
         config: {
           configurable: {
-            advertised_client_tools: ADVERTISED_CLIENT_TOOLS
+            client_tool_schemas: filteredSchemas
           }
         },
-        streamMode: 'messages',
+        streamMode: ['messages', 'custom'],  // Stream messages + custom events (for UI)
       })
 
       let assistantMessage = ''
       let currentInterrupt = null
 
       for await (const chunk of stream) {
-        console.log('Stream chunk:', chunk.event, chunk.data) // Debug log
+        console.log('📦 Stream chunk:', chunk.event)
         
-        // Handle different event types
-        if (chunk.event === 'messages/partial' || chunk.event === 'messages/complete') {
-          const message = chunk.data?.[0]
-          const content = message?.content
+        // Handle custom events (UI messages from push_ui_message)
+        if (chunk.event === 'custom') {
+          const customData = chunk.data
+          console.log('🎨 Custom event received:', customData)
           
-          // Check if this is a tool message with return_direct (like play_video)
-          if (message?.type === 'tool') {
-            const videoData = parseVideoPlayer(content)
-            if (videoData) {
-              console.log('Video player detected:', videoData)
-              setVideoPlayer(videoData)
-            }
-          } else if (content && typeof content === 'string') {
+          // UI messages come through as custom events
+          if (customData.name === 'play_video') {
+            console.log('🎬 Video player custom event:', customData.props)
+            setVideoPlayer({
+              video_url: customData.props?.video_url,
+              title: customData.props?.title
+            })
+          }
+        }
+        
+        // Handle regular messages
+        if (chunk.event === 'messages/partial' || chunk.event === 'messages/complete') {
+          const messages = chunk.data || []
+          
+          for (const message of messages) {
+            const content = message?.content
+            
+            // Extract text from AI messages for display
+            if (message?.type === 'ai' && content) {
+              if (typeof content === 'string') {
             assistantMessage = content
           } else if (Array.isArray(content)) {
-            assistantMessage = content.map(c => c.text || '').join('')
+                const text = content.map(c => c.text || '').join('')
+                if (text) {
+                  assistantMessage = text
+                }
+              }
+            }
           }
         }
 
@@ -322,63 +304,57 @@ function App() {
         setInterrupt(currentInterrupt)
         
         /*
-         * TWO TYPES OF INTERRUPTS:
-         * 1. HITL Middleware: value.action_requests[0] contains tool call info
-         * 2. Direct interrupt(): value directly contains the interrupt data with a 'type' field
+         * AG UI INTERRUPT PATTERNS
+         * 
+         * Middleware-based HITL interrupts (both restart_router and rent_movie)
+         * Structure: interrupt.value.action_requests[0] = {name, args}
+         * Configured in agent middleware via HumanInTheLoopMiddleware
+         * 
+         * Note: interrupt() cannot be called inside MCP tools because they run in 
+         * a separate process without access to the LangGraph runnable context.
          */
         
-        // Check for HITL middleware interrupt (action_requests)
-        const actionRequest = currentInterrupt.value?.action_requests?.[0]
-        
-        // Check for direct interrupt() call (has 'type' field)
-        const directInterruptType = currentInterrupt.value?.type
-        
-        console.log('Action request:', actionRequest)
-        console.log('Direct interrupt type:', directInterruptType)
-        
-        // Handle direct interrupt() calls (like rent_movie)
-        if (directInterruptType) {
-          setInterruptType(directInterruptType)
-          setInterruptData(currentInterrupt.value)
-        }
-        // Handle HITL middleware interrupts
-        else if (actionRequest) {
-          const toolName = actionRequest.name
-          const toolArgs = actionRequest.args
-          console.log('Tool name:', toolName, 'Tool args:', toolArgs)
+        // Check for middleware HITL interrupt
+        if (currentInterrupt.value?.action_requests) {
+          const actionRequest = currentInterrupt.value.action_requests[0]
+          console.log('Middleware HITL interrupt detected:', actionRequest)
           
-          /*
-           * AG UI TOOL-TO-COMPONENT MAPPING
-           * 
-           * Here we map tool names to interrupt types, which determine
-           * which React component to render. This is the core of AG UI:
-           * the agent's tool call directly triggers a UI component.
-           */
-          
-          // Confirmation Dialog - AG UI client tool
-          if (toolName === 'confirmation_dialog') {
-            setInterruptType('confirmation')
-            setInterruptData(toolArgs)
-            // Don't show raw tool args - the ConfirmationDialog component will render below
-          } 
-          // Router Restart - Special confirmation with detailed warning
-          else if (toolName === 'restart_router') {
-            setInterruptType('router_restart')
-            setInterruptData(toolArgs)
-            // Don't show raw tool args - the RouterRestartConfirmation component will render below
-          }
-          // Generic tool approval fallback
-          else {
-            setInterruptType('tool_approval')
-            setInterruptData(toolArgs)
-            setMessages((prev) => [
-              ...prev,
-              {
-                role: 'system',
-                content: `🚨 Approval Required: ${toolName}`,
-                toolCall: { tool: toolName, args: toolArgs },
-              },
-            ])
+          if (actionRequest) {
+            const toolName = actionRequest.name
+            const toolArgs = actionRequest.args
+            
+            // Restart router: Generic ConfirmationDialog
+            if (toolName === 'restart_router') {
+              setInterruptType('confirmation')
+              setInterruptData({
+                message: 'Are you sure you want to restart your router?',
+                options: ['Yes, Restart Router', 'Cancel'],
+                details: '<strong>⚠️ This will restart your router</strong><br/>Your internet connection will be offline for approximately 2 minutes.'
+              })
+            }
+            // Rent movie: Custom RentalPayment component
+            else if (toolName === 'rent_movie') {
+              setInterruptType('rental_payment')
+              setInterruptData({
+                title: toolArgs.title,
+                video_url: toolArgs.video_url,
+                rental_price: toolArgs.rental_price,
+                rental_period: '48 hours'
+              })
+            }
+            // Generic tool approval fallback
+            else {
+              setInterruptType('tool_approval')
+              setInterruptData(toolArgs)
+              setMessages((prev) => [
+                ...prev,
+                {
+                  role: 'system',
+                  content: `🚨 Approval Required: ${toolName}`,
+                  toolCall: { tool: toolName, args: toolArgs },
+                },
+              ])
+            }
           }
         }
       }
@@ -402,7 +378,8 @@ function App() {
     }
   }
 
-  // Handle confirmation dialog selection
+
+  // Handle confirmation dialog selection (middleware HITL)
   const handleConfirmationSelect = async (selectedOption) => {
     if (!interrupt) return
 
@@ -414,8 +391,11 @@ function App() {
 
     try {
       // Resume with the selected option
-      // CRITICAL: Send the user's actual choice to the backend!
+      // For middleware HITL, send editedAction with selected_option
       const actionRequest = interrupt.value?.action_requests?.[0]
+      const filteredSchemas = CLIENT_TOOL_SCHEMAS.filter(s => 
+        ADVERTISED_CLIENT_TOOLS.includes(s.name)
+      )
       const stream = client.runs.stream(threadId, 'supervisor', {
         command: {
           resume: {
@@ -434,35 +414,55 @@ function App() {
         },
         config: {
           configurable: {
-            advertised_client_tools: ADVERTISED_CLIENT_TOOLS
+            client_tool_schemas: filteredSchemas
           }
         },
-        streamMode: 'messages',
+        streamMode: ['messages', 'custom'],  // Stream messages + custom events (for UI)
       })
 
       let assistantMessage = ''
       let currentInterrupt = null
 
       for await (const chunk of stream) {
-        console.log('Resume stream chunk:', chunk.event, chunk.data) // Debug log
+        console.log('📦 Resume stream chunk:', chunk.event)
         
-        if (chunk.event === 'messages/partial') {
-          const content = chunk.data?.[0]?.content
-          if (content && typeof content === 'string') {
-            assistantMessage = content
-          } else if (Array.isArray(content)) {
-            assistantMessage = content.map(c => c.text || '').join('')
-          }
-        } else if (chunk.event === 'messages/complete') {
-          const content = chunk.data?.[0]?.content
-          if (content && typeof content === 'string') {
-            assistantMessage = content
-          } else if (Array.isArray(content)) {
-            assistantMessage = content.map(c => c.text || '').join('')
+        // Handle custom events (UI messages from push_ui_message)
+        if (chunk.event === 'custom') {
+          const customData = chunk.data
+          console.log('🎨 Custom event received during resume:', customData)
+          
+          // UI messages come through as custom events
+          if (customData.name === 'play_video') {
+            console.log('🎬 Video player custom event:', customData.props)
+            setVideoPlayer({
+              video_url: customData.props?.video_url,
+              title: customData.props?.title
+            })
           }
         }
         
-        // Check for NEW interrupts (like restart_router after confirmation_dialog)
+        // Handle regular messages
+        if (chunk.event === 'messages/partial' || chunk.event === 'messages/complete') {
+          const messages = chunk.data || []
+          
+          for (const message of messages) {
+            const content = message?.content
+            
+            // Extract text from AI messages for display
+            if (message?.type === 'ai' && content) {
+              if (typeof content === 'string') {
+            assistantMessage = content
+          } else if (Array.isArray(content)) {
+                const text = content.map(c => c.text || '').join('')
+                if (text) {
+                  assistantMessage = text
+                }
+              }
+            }
+          }
+        }
+        
+        // Check for NEW interrupts
         if (chunk.data?.__interrupt__) {
           currentInterrupt = chunk.data.__interrupt__[0]
           console.log('New interrupt detected during resume:', currentInterrupt)
@@ -473,30 +473,37 @@ function App() {
         setMessages((prev) => [...prev, { role: 'assistant', content: assistantMessage }])
       }
 
-      // Handle new interrupt if one appeared (e.g., restart_router approval)
+      // Handle new interrupt if one appeared
       if (currentInterrupt) {
         setInterrupt(currentInterrupt)
         
-        // Check for direct interrupt() call (has 'type' field)
-        const directInterruptType = currentInterrupt.value?.type
         const actionRequest = currentInterrupt.value?.action_requests?.[0]
         
-        // Handle direct interrupt() calls (like rent_movie)
-        if (directInterruptType) {
-          setInterruptType(directInterruptType)
-          setInterruptData(currentInterrupt.value)
-        }
-        // Handle HITL middleware interrupts
-        else if (actionRequest) {
+        if (actionRequest) {
           const toolName = actionRequest.name
           const toolArgs = actionRequest.args
           
-          if (toolName === 'restart_router') {
-            setInterruptType('router_restart')
-            setInterruptData(toolArgs)
-          } else if (toolName === 'confirmation_dialog') {
+          // Backend MCP tools that use generic ConfirmationDialog
+          if (toolName === 'restart_router' || toolName === 'rent_movie') {
             setInterruptType('confirmation')
-            setInterruptData(toolArgs)
+            let confirmationData = {
+              message: toolArgs.message || `Confirm ${toolName}?`,
+              options: toolArgs.options || ['Confirm', 'Cancel'],
+            }
+            
+            if (toolName === 'restart_router') {
+              confirmationData.details = '<strong>⚠️ This will restart your router</strong><br/>Your internet connection will be offline for approximately 2 minutes.'
+              confirmationData.message = 'Are you sure you want to restart your router?'
+              confirmationData.options = ['Yes, Restart Router', 'Cancel']
+            }
+            
+            if (toolName === 'rent_movie') {
+              confirmationData.message = `Rent "${toolArgs.title}" for $${toolArgs.rental_price?.toFixed(2)}?`
+              confirmationData.options = ['Rent Now', 'Cancel']
+              confirmationData.details = `You'll have access to this movie for 48 hours after purchase.`
+            }
+            
+            setInterruptData(confirmationData)
           } else {
             setInterruptType('tool_approval')
             setInterruptData(toolArgs)
@@ -548,15 +555,20 @@ function App() {
 
     try {
       // Resume with rejection
+      const filteredSchemas = CLIENT_TOOL_SCHEMAS.filter(s => 
+        ADVERTISED_CLIENT_TOOLS.includes(s.name)
+      )
+      
+      // All interrupts now use middleware format
+      const resumeCommand = { decisions: [{ type: 'reject', message: 'User cancelled this action' }] }
+      
       const stream = client.runs.stream(threadId, 'supervisor', {
         command: {
-          resume: {
-            decisions: [{ type: 'reject', message: 'User cancelled this action' }],
-          },
+          resume: resumeCommand,
         },
         config: {
           configurable: {
-            advertised_client_tools: ADVERTISED_CLIENT_TOOLS
+            client_tool_schemas: filteredSchemas
           }
         },
         streamMode: 'messages',
@@ -620,18 +632,16 @@ function App() {
     ])
 
     try {
-      // For rental payments, pass approval flag directly to interrupt()
-      const resumeValue = interruptType === 'rental_payment' 
-        ? { approved: true }
-        : { decisions: [{ type: 'approve' }] }
-
+      const filteredSchemas = CLIENT_TOOL_SCHEMAS.filter(s => 
+        ADVERTISED_CLIENT_TOOLS.includes(s.name)
+      )
       const stream = client.runs.stream(threadId, 'supervisor', {
         command: {
-          resume: resumeValue,
+          resume: { decisions: [{ type: 'approve' }] },
         },
         config: {
           configurable: {
-            advertised_client_tools: ADVERTISED_CLIENT_TOOLS
+            client_tool_schemas: filteredSchemas
           }
         },
         streamMode: 'messages',
@@ -674,26 +684,33 @@ function App() {
       if (currentInterrupt) {
         setInterrupt(currentInterrupt)
         
-        // Check for direct interrupt() call (has 'type' field)
-        const directInterruptType = currentInterrupt.value?.type
         const actionRequest = currentInterrupt.value?.action_requests?.[0]
         
-        // Handle direct interrupt() calls (like rent_movie)
-        if (directInterruptType) {
-          setInterruptType(directInterruptType)
-          setInterruptData(currentInterrupt.value)
-        }
-        // Handle HITL middleware interrupts
-        else if (actionRequest) {
+        if (actionRequest) {
           const toolName = actionRequest.name
           const toolArgs = actionRequest.args
           
-          if (toolName === 'restart_router') {
-            setInterruptType('router_restart')
-            setInterruptData(toolArgs)
-          } else if (toolName === 'confirmation_dialog') {
+          // Backend MCP tools that use generic ConfirmationDialog
+          if (toolName === 'restart_router' || toolName === 'rent_movie') {
             setInterruptType('confirmation')
-            setInterruptData(toolArgs)
+            let confirmationData = {
+              message: toolArgs.message || `Confirm ${toolName}?`,
+              options: toolArgs.options || ['Confirm', 'Cancel'],
+            }
+            
+            if (toolName === 'restart_router') {
+              confirmationData.details = '<strong>⚠️ This will restart your router</strong><br/>Your internet connection will be offline for approximately 2 minutes.'
+              confirmationData.message = 'Are you sure you want to restart your router?'
+              confirmationData.options = ['Yes, Restart Router', 'Cancel']
+            }
+            
+            if (toolName === 'rent_movie') {
+              confirmationData.message = `Rent "${toolArgs.title}" for $${toolArgs.rental_price?.toFixed(2)}?`
+              confirmationData.options = ['Rent Now', 'Cancel']
+              confirmationData.details = `You'll have access to this movie for 48 hours after purchase.`
+            }
+            
+            setInterruptData(confirmationData)
           } else {
             setInterruptType('tool_approval')
             setInterruptData(toolArgs)
@@ -806,34 +823,28 @@ function App() {
 
         {/* AG UI COMPONENT RENDERING - Based on interrupt type */}
         
+        {/* Middleware HITL: Generic ConfirmationDialog for backend MCP tools (restart_router) */}
         {interrupt && interruptType === 'confirmation' && (
           <div className="interrupt-panel">
             <ConfirmationDialog
               message={interruptData?.message || 'Please confirm this action'}
               options={interruptData?.options || ['Confirm', 'Cancel']}
+              details={interruptData?.details}
               onConfirm={handleConfirmationSelect}
               onCancel={handleCancel}
             />
           </div>
         )}
 
-        {interrupt && interruptType === 'router_restart' && (
+        {/* Middleware HITL: Custom RentalPayment component (rent_movie) */}
+        {interrupt && interruptType === 'rental_payment' && (
           <div className="interrupt-panel">
-            {/* Simple approve, no editing needed */}
-            <RouterRestartConfirmation
-              onConfirm={handleApprove}
+            <RentalPayment
+              data={interruptData}
+              onConfirm={handleConfirmationSelect}
               onCancel={handleCancel}
             />
           </div>
-        )}
-
-        {/* Rental Payment Confirmation */}
-        {interruptType === 'rental_payment' && interruptData && (
-          <RentalPayment
-            data={interruptData}
-            onApprove={handleApprove}
-            onCancel={handleCancel}
-          />
         )}
 
         {interrupt && interruptType === 'tool_approval' && (

@@ -13,39 +13,36 @@ Client Tools (dynamically filtered):
 - network_status_display: Network status cards
 """
 
-from typing import Annotated
+from typing import Annotated, Sequence, TypedDict
 from langchain_core.tools import tool
 from langchain.tools import ToolRuntime
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage
+from langgraph.graph.message import add_messages
+from langgraph.graph.ui import AnyUIMessage, ui_message_reducer
 
 from src.mcp_setup import wifi_mcp_tools
-from src.middleware import AgentContext, DomainToolFilterMiddleware
-from src.tool_registry import CLIENT_TOOL_REGISTRY
+from src.middleware import AgentContext
+from src.tool_converter import convert_agui_schemas_to_tools
+from src.subagent_utils import propagate_ui_messages
 
 
 # =============================================================================
-# WIFI AGENT
+# WIFI AGENT STATE
 # =============================================================================
 
-# Get ALL client tools (middleware will filter by domain + advertisement)
-all_client_tools = list(CLIENT_TOOL_REGISTRY.values())
+class WiFiAgentState(TypedDict):
+    """WiFi agent state with UI channel for Generative UI."""
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    ui: Annotated[Sequence[AnyUIMessage], ui_message_reducer]
 
-wifi_agent = create_agent(
-    model="anthropic:claude-haiku-4-5",
-    tools=wifi_mcp_tools + all_client_tools,  # MCP tools + ALL client tools (middleware filters!)
-    context_schema=AgentContext,
-    middleware=[
-        DomainToolFilterMiddleware("wifi", wifi_mcp_tools),  # Filters client tools dynamically!
-        HumanInTheLoopMiddleware(
-            interrupt_on={
-                "restart_router": True,  # Sensitive operation requires user approval
-            },
-            description_prefix="🚨 Action requires approval",
-        ),
-    ],
-    system_prompt="""You are a helpful customer service assistant helping with WiFi and internet connectivity.
+
+# =============================================================================
+# WIFI AGENT FACTORY
+# =============================================================================
+
+WIFI_SYSTEM_PROMPT = """You are a helpful customer service assistant helping with WiFi and internet connectivity.
 
 Speak directly to the customer in first person:
 - "I'll run diagnostics on your network..."
@@ -58,8 +55,30 @@ When helping with connectivity issues:
 3. Suggest solutions (like router restart) when appropriate
 4. The router restart will automatically prompt for user confirmation
 
-Be friendly, clear, and technically helpful.""",
-)
+Be friendly, clear, and technically helpful."""
+
+def create_wifi_agent(tools: list):
+    """
+    Create a WiFi agent with the specified tools.
+    
+    This follows the customer's pattern: "Currently each sub agent is initialised on each request."
+    By creating the agent per-request with the combined tool list, we avoid tool caching issues.
+    """
+    return create_agent(
+        model="anthropic:claude-haiku-4-5",
+        tools=tools,  # MCP + client tools combined
+        state_schema=WiFiAgentState,
+        context_schema=AgentContext,
+        middleware=[
+            HumanInTheLoopMiddleware(
+                interrupt_on={
+                    "restart_router": True,  # Sensitive operation requires user approval
+                },
+                description_prefix="🚨 Action requires approval",
+            ),
+        ],
+        system_prompt=WIFI_SYSTEM_PROMPT,
+    )
 
 
 # =============================================================================
@@ -79,21 +98,48 @@ async def handle_wifi_request(
     
     🔑 ASYNC: MCP tools require async invocation!
     """
-    # Extract advertised_client_tools from config for subagent
-    advertised_tools = runtime.config.get("configurable", {}).get("advertised_client_tools", [])
-    if advertised_tools:
-        print(f"📤 [WIFI] Passing advertised tools to subagent: {advertised_tools}")
-    else:
-        print(f"⚠️ [WIFI] No tools advertised in config")
+    # Extract and convert client_tool_schemas from config
+    tool_schemas = runtime.config.get("configurable", {}).get("client_tool_schemas", [])
     
-    # Invoke subagent with runtime.config for interrupt propagation
+    if tool_schemas:
+        print(f"📤 [WIFI] Received {len(tool_schemas)} tool schemas from frontend")
+        
+        # Filter schemas by domain
+        wifi_schemas = []
+        for schema in tool_schemas:
+            if "domains" not in schema:
+                print(f"⚠️ [WIFI] Rejecting tool '{schema.get('name')}' - missing 'domains' property")
+                continue
+            if "wifi" in schema.get("domains", []):
+                wifi_schemas.append(schema)
+        
+        print(f"🔍 [WIFI] Filtered to {len(wifi_schemas)} wifi domain tools: {[s['name'] for s in wifi_schemas]}")
+        
+        # Convert schemas to LangGraph tools
+        client_tools = convert_agui_schemas_to_tools(wifi_schemas)
+        print(f"🔄 [WIFI] Converted schemas to {len(client_tools)} tool instances")
+    else:
+        print(f"⚠️ [WIFI] No tool schemas in config")
+        client_tools = []
+    
+    # Combine MCP tools + filtered client tools
+    all_tools = wifi_mcp_tools + client_tools
+    print(f"🔧 [WIFI] Creating subagent with {len(all_tools)} total tools: {[t.name for t in all_tools]}")
+    
+    # Create agent per-request with combined tools (customer's pattern!)
+    # This avoids tool caching issues - each request gets a fresh agent
+    wifi_agent = create_wifi_agent(all_tools)
+    
+    # Invoke with runtime.config for interrupt propagation
     # 🔑 MUST use ainvoke() for MCP tools!
     result = await wifi_agent.ainvoke(
         {"messages": [HumanMessage(content=request)]},
-        config=runtime.config  # Config has advertised_client_tools in configurable
+        config=runtime.config
     )
     
+    # Propagate UI messages from subagent to supervisor
+    propagate_ui_messages(result)
+    
     # Return the final message content
-    # Interrupts automatically propagate through the shared config
     return result["messages"][-1].content
 

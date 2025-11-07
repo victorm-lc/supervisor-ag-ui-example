@@ -39,19 +39,14 @@ def wifi_diagnostic(
 
 @mcp.tool()
 def restart_router(
-    router_id: Annotated[str, "Router identifier (optional, defaults to primary)"] = "primary"
+    router_id: Annotated[str, "Router identifier (optional, defaults to primary)"] = "primary",
+    selected_option: Annotated[str, "The option selected by the user (filled after user interaction)"] = None
 ) -> str:
     """
-    Restart the customer's router.
-    
-    In production, this would:
-    - Send command to IoT platform
-    - Track restart status
-    - Notify customer when complete
-    - Log action for customer service records
-    
-    ⚠️ This is a sensitive operation that requires user confirmation!
+    This is a tool that restarts the customer's router. You can pass in "primary" as the router id and it will
+    restart the primary router for the user.
     """
+
     return f"✅ Router restart initiated for {router_id}. Your router will be offline for about 2 minutes and then automatically come back online. Your devices should reconnect automatically."
 
 

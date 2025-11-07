@@ -7,44 +7,40 @@ MCP Tools (from Video Gateway MCP):
 - search_content: Search for movies, TV shows, and other video content
 
 Client Tools (dynamically filtered):
-- confirmation_dialog: User confirmation dialogs
 - error_display: Error messages
-- play_video: Video player component (return_direct=True)
+- play_video: Video player component (pushes UI message)
 """
 
-from typing import Annotated
+from typing import Annotated, Sequence, TypedDict
 from langchain_core.tools import tool
 from langchain.tools import ToolRuntime
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage
+from langgraph.graph.message import add_messages
+from langgraph.graph.ui import AnyUIMessage, ui_message_reducer
 
 from src.mcp_setup import video_mcp_tools
-from src.middleware import AgentContext, DomainToolFilterMiddleware
-from src.tool_registry import CLIENT_TOOL_REGISTRY
+from src.middleware import AgentContext
+from src.tool_converter import convert_agui_schemas_to_tools
+from src.subagent_utils import propagate_ui_messages
 
 
 # =============================================================================
-# VIDEO AGENT
+# VIDEO AGENT STATE
 # =============================================================================
 
-# Get ALL client tools (middleware will filter by domain + advertisement)
-all_client_tools = list(CLIENT_TOOL_REGISTRY.values())
+class VideoAgentState(TypedDict):
+    """Video agent state with UI channel for Generative UI."""
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    ui: Annotated[Sequence[AnyUIMessage], ui_message_reducer]
 
-video_agent = create_agent(
-    model="anthropic:claude-haiku-4-5",
-    tools=video_mcp_tools + all_client_tools,  # MCP tools + ALL client tools (middleware filters!)
-    context_schema=AgentContext,
-    middleware=[
-        DomainToolFilterMiddleware("video", video_mcp_tools),  # Filters client tools dynamically!
-        HumanInTheLoopMiddleware(
-            interrupt_on={
-                "confirmation_dialog": True,  # Requires user confirmation
-            },
-            description_prefix="🚨 Confirmation required",
-        ),
-    ],
-    system_prompt="""You are a helpful customer service assistant helping customers find and watch video content.
+
+# =============================================================================
+# VIDEO AGENT FACTORY
+# =============================================================================
+
+VIDEO_SYSTEM_PROMPT = """You are a helpful customer service assistant helping customers find and watch video content.
 
 Speak directly to the customer in first person:
 - "I'll search for that movie..."
@@ -54,13 +50,37 @@ Speak directly to the customer in first person:
 When helping customers watch content:
 1. Search for what they're looking for using search_content
 2. Present the results naturally  
-3. For FREE content (trailers, previews): Use play_video to start the video immediately
-4. For RENTALS (if customer says "rent", "buy", or "purchase"): Use rent_movie which will ask for payment confirmation
+3. Use play_video to start the video immediately
 
 The rent_movie tool will automatically handle payment confirmation with the user before completing the rental.
 
-Be enthusiastic, friendly, and helpful.""",
-)
+Be enthusiastic, friendly, and helpful."""
+
+def create_video_agent(tools: list):
+    """
+    Create a video agent with the specified tools.
+    
+    This follows the customer's pattern: "Currently each sub agent is initialised on each request."
+    By creating the agent per-request with the combined tool list, we avoid tool caching issues.
+    
+    Note: rent_movie uses middleware-based HITL (same pattern as restart_router).
+    interrupt() cannot be called inside MCP tools because they run in a separate process.
+    """
+    return create_agent(
+        model="anthropic:claude-haiku-4-5",
+        tools=tools,  # MCP + client tools combined
+        state_schema=VideoAgentState,
+        context_schema=AgentContext,
+        middleware=[
+            HumanInTheLoopMiddleware(
+                interrupt_on={
+                    "rent_movie": True,  # Rental requires payment confirmation
+                },
+                description_prefix="🚨 Payment confirmation required",
+            ),
+        ],
+        system_prompt=VIDEO_SYSTEM_PROMPT,
+    )
 
 
 # =============================================================================
@@ -80,21 +100,48 @@ async def handle_video_request(
     
     🔑 ASYNC: MCP tools require async invocation!
     """
-    # Extract advertised_client_tools from config for subagent
-    advertised_tools = runtime.config.get("configurable", {}).get("advertised_client_tools", [])
-    if advertised_tools:
-        print(f"📤 [VIDEO] Passing advertised tools to subagent: {advertised_tools}")
-    else:
-        print(f"⚠️ [VIDEO] No tools advertised in config")
+    # Extract and convert client_tool_schemas from config
+    tool_schemas = runtime.config.get("configurable", {}).get("client_tool_schemas", [])
     
-    # Invoke subagent with runtime.config for interrupt propagation
+    if tool_schemas:
+        print(f"📤 [VIDEO] Received {len(tool_schemas)} tool schemas from frontend")
+        
+        # Filter schemas by domain
+        video_schemas = []
+        for schema in tool_schemas:
+            if "domains" not in schema:
+                print(f"⚠️ [VIDEO] Rejecting tool '{schema.get('name')}' - missing 'domains' property")
+                continue
+            if "video" in schema.get("domains", []):
+                video_schemas.append(schema)
+        
+        print(f"🔍 [VIDEO] Filtered to {len(video_schemas)} video domain tools: {[s['name'] for s in video_schemas]}")
+        
+        # Convert schemas to LangGraph tools
+        client_tools = convert_agui_schemas_to_tools(video_schemas)
+        print(f"🔄 [VIDEO] Converted schemas to {len(client_tools)} tool instances")
+    else:
+        print(f"⚠️ [VIDEO] No tool schemas in config")
+        client_tools = []
+    
+    # Combine MCP tools + filtered client tools
+    all_tools = video_mcp_tools + client_tools
+    print(f"🔧 [VIDEO] Creating subagent with {len(all_tools)} total tools: {[t.name for t in all_tools]}")
+    
+    # Create agent per-request with combined tools (customer's pattern!)
+    # This avoids tool caching issues - each request gets a fresh agent
+    video_agent = create_video_agent(all_tools)
+    
+    # Invoke with runtime.config for interrupt propagation
     # 🔑 MUST use ainvoke() for MCP tools!
     result = await video_agent.ainvoke(
         {"messages": [HumanMessage(content=request)]},
-        config=runtime.config  # Config has advertised_client_tools in configurable
+        config=runtime.config
     )
     
+    # Propagate UI messages from subagent to supervisor
+    propagate_ui_messages(result)
+    
     # Return the final message content
-    # Interrupts automatically propagate through the shared config
     return result["messages"][-1].content
 
