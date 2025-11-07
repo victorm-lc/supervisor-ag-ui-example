@@ -1,6 +1,6 @@
 # LangGraph Generative UI + MCP: Multi-Agent System
 
-**Production-ready multi-agent architecture with client-advertised UI capabilities, interrupt-based HITL, and dynamic tool binding.**
+**Multi-agent architecture with client-advertised UI capabilities, interrupt-based HITL, and dynamic tool binding.**
 
 ✨ **LangGraph push_ui_message • MCP servers • Human-in-the-loop middleware • Supervisor routing • Version-agnostic clients**
 
@@ -17,6 +17,7 @@ Instead of prompting agents to "ask the user for confirmation," we use **LangGra
 - ✅ **Guaranteed user approval** before execution (not LLM-dependent)
 - ✅ **Structured confirmation flows** with retry/cancel logic
 - ✅ **Audit trail** of approved actions
+- ✅ **Agnostic UI Confirmation Modal** frontend component that renders interrupts to the user in a nice modal, and is easily customizable
 - ❌ Prompting = unreliable, LLM may skip/hallucinate confirmations
 
 **2. Backend MCP Tools for Sensitive Operations**  
