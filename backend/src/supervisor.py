@@ -16,11 +16,11 @@ Key Innovations:
 4. GENERATIVE UI: Client tools push UI messages through dedicated UI channel
 
 For more details, see:
-- middleware.py: Dynamic tool filtering logic
+- utils/agent_helpers.py: Dynamic tool filtering logic
 - mcp_setup.py: MCP server initialization
 - wifi_agent.py: WiFi domain specialist
 - video_agent.py: Video domain specialist
-- tool_converter.py: AG UI tool schema converter
+- utils/tool_converter.py: AG UI tool schema converter
 """
 
 from typing import Annotated, Sequence, TypedDict
