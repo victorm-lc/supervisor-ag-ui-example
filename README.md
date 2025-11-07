@@ -1,16 +1,37 @@
 # LangGraph Generative UI + MCP: Multi-Agent System
 
-**Multi-agent architecture with frontend-advertised UI capabilities using LangGraph's official Generative UI pattern.**
+**Production-ready multi-agent architecture with client-advertised UI capabilities, interrupt-based HITL, and dynamic tool binding.**
 
-✨ **LangGraph push_ui_message • MCP servers • Dynamic tool binding • Supervisor routing • Client-advertised tools**
+✨ **LangGraph push_ui_message • MCP servers • Human-in-the-loop middleware • Supervisor routing • Version-agnostic clients**
 
 ---
 
-## 🎯 The Pattern
+## 🎯 Why This Architecture?
 
-Clients advertise their UI capabilities at runtime → Backend dynamically converts them to tools → Agents call them → UI renders via `push_ui_message()` custom events.
+This example demonstrates key patterns for building **maintainable, version-agnostic agent UIs** that scale across multiple clients (web, mobile, CLI) while maintaining security and user control.
 
-**This example shows how to build version-agnostic agent UIs using LangGraph's Generative UI + AG UI tool schemas.**
+### Key Benefits
+
+**1. Interrupt-Based Human-in-the-Loop (Not Prompting)**  
+Instead of prompting agents to "ask the user for confirmation," we use **LangGraph's middleware interrupts** for sensitive operations (payments, router restarts). This provides:
+- ✅ **Guaranteed user approval** before execution (not LLM-dependent)
+- ✅ **Structured confirmation flows** with retry/cancel logic
+- ✅ **Audit trail** of approved actions
+- ❌ Prompting = unreliable, LLM may skip/hallucinate confirmations
+
+**2. Backend MCP Tools for Sensitive Operations**  
+Sensitive tools (rent_movie, restart_router) live in **backend MCP servers with interrupt middleware**, not frontend tools. Why?
+- ✅ **Security**: Backend enforces approval before execution
+- ✅ **Client-agnostic**: One interrupt definition works for web, mobile, CLI
+- ✅ **Maintainability**: No duplicate UI/interrupt logic per client
+- ❌ Frontend tool interrupts = hard to maintain across client versions
+
+**3. Version-Agnostic Client Support**  
+Clients advertise their UI capabilities → Backend adapts automatically:
+- ✅ **v1.0 app** (2 tools): Backend uses only those 2 tools
+- ✅ **v2.0 app** (5 tools): Backend uses all 5 tools
+- ✅ **CLI** (0 UI tools): Backend falls back to text-only responses
+- ❌ Hardcoded tools = backend changes required for every client update
 
 ---
 
@@ -37,100 +58,69 @@ cd frontend && npm install && npm run dev
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ How It Works
 
 ```
-Frontend → Supervisor Agent → Domain Agents (WiFi/Video) → MCP Servers
-    ↓                                    ↓
-Advertises UI schemas          Calls push_ui_message()
-["play_video", ...]                     ↓
-    ↑                          UI stream (custom events)
-    └──────────── renders VideoPlayer ──────────┘
+Frontend → Supervisor → Domain Agents → MCP Servers (with HITL interrupts)
+    ↓                          ↓
+Advertises schemas    Calls push_ui_message()
+                               ↓
+    ↑                   Custom event stream
+    └───── renders UI ─────────┘
 ```
 
 **Flow:**
-1. Frontend advertises AG UI tool schemas via `client_tool_schemas` config
-2. Backend converts schemas → LangGraph tools (via `tool_converter.py`)
-3. Supervisor routes to domain agents with dynamically bound tools
-4. Agent calls tool → `push_ui_message(name, props)` → Custom event stream
-5. Frontend receives `{event: 'custom', data: {name, props}}` → Renders UI
+1. **Frontend advertises** AG UI tool schemas via config
+2. **Backend converts** schemas → LangGraph tools with `push_ui_message()`
+3. **Supervisor routes** to domain agents (WiFi/Video) with filtered tools
+4. **Agent calls tool** → `push_ui_message(name, props)` → Custom event
+5. **Frontend renders** component from structured props
+
+**Example:**  
+User: *"play me the matrix"* → Video agent → `rent_movie` (interrupt for payment) → `play_video` (pushes UI) → YouTube player renders
 
 ---
 
-## 🔑 Core Concepts
+## 🔑 Key Patterns
 
-### 1. LangGraph Generative UI ⭐
+### LangGraph Generative UI
 
-Frontend-advertised tools use `push_ui_message()` to send structured UI data:
+Frontend-advertised tools use `push_ui_message()` for structured UI updates:
 
 ```python
-# backend/src/tool_converter.py
 from langgraph.graph.ui import push_ui_message
 
-def dynamic_tool_func(**kwargs) -> str:
-    """Auto-generated from client AG UI schema"""
-    push_ui_message(tool_name, kwargs)  # Sends to custom event stream
-    return f"✅ {tool_description} - UI updated successfully"
+def dynamic_tool_func(**kwargs):
+    push_ui_message(tool_name, kwargs)  # Structured props to frontend
+    return f"✅ UI updated successfully"
 ```
 
 ```javascript
-// frontend/src/App.jsx
-streamMode: ['messages', 'custom']  // Messages + UI events
+streamMode: ['messages', 'custom']  // Subscribe to UI events
 
-if (chunk.event === 'custom') {
-  if (chunk.data.name === 'play_video') {
-    setVideoPlayer(chunk.data.props)  // { video_url, title }
-  }
+if (chunk.event === 'custom' && chunk.data.name === 'play_video') {
+  setVideoPlayer(chunk.data.props)  // { video_url, title }
 }
 ```
 
-**Key:** UI messages propagate from subagents → supervisor via explicit `push_ui_message()` calls.
+### Human-in-the-Loop Middleware
 
-### 2. Client Tool Advertisement
-
-Frontend sends AG UI schemas → Backend converts to LangGraph tools:
-
-```javascript
-// frontend/src/toolSchemas.ts
-export const CLIENT_TOOL_SCHEMAS = [
-  {
-    name: "play_video",
-    description: "Play a video in the frontend YouTube player",
-    parameters: {
-      type: "object",
-      properties: {
-        video_url: { type: "string" },
-        title: { type: "string" }
-      }
-    }
-  }
-]
-```
+Backend MCP tools use interrupt middleware for sensitive operations:
 
 ```python
-# Supervisor receives and converts at runtime
-client_schemas = config.get("configurable", {}).get("client_tool_schemas", [])
-client_tools = convert_schemas_to_tools(client_schemas)
+from langchain.agents.middleware import HumanInTheLoopMiddleware
+
+agent = create_agent(
+    tools=[rent_movie, restart_router],
+    middleware=[
+        HumanInTheLoopMiddleware(
+            interrupt_on={"rent_movie": True, "restart_router": True}
+        )
+    ]
+)
 ```
 
-**Result:** v1.0 (2 tools) and v2.0 (5 tools) work with the same backend.
-
-### 3. MCP Backend Tools
-
-Domain logic stays in MCP servers (WiFi diagnostics, video rentals):
-
-```python
-# backend/src/mcp_servers/video_server.py
-from mcp.server.fastmcp import FastMCP
-mcp = FastMCP("Video Service")
-
-@mcp.tool()
-def rent_movie(title: str, rental_price: float) -> str:
-    rental_id = f"R-{random.randint(10000, 99999)}"
-    return f"✅ '{title}' rented! Rental ID: {rental_id}"
-```
-
-**Separation:** MCP = backend services, Client tools = UI rendering
+Frontend receives interrupt → Shows confirmation UI → Sends approval → Agent resumes
 
 ---
 
@@ -138,123 +128,52 @@ def rent_movie(title: str, rental_price: float) -> str:
 
 ```
 backend/src/
-├── supervisor.py        # Supervisor agent (routes to domains)
-├── video_agent.py       # Video domain agent + UI propagation
-├── wifi_agent.py        # WiFi domain agent
-├── tool_converter.py    # AG UI schemas → LangGraph tools + push_ui_message
-├── mcp_setup.py         # MCP client initialization
+├── supervisor.py              # Routes to domain agents
+├── video_agent.py            # Video domain + HITL for payments
+├── wifi_agent.py             # WiFi domain + HITL for router restarts
+├── utils/
+│   ├── tool_converter.py     # AG UI schemas → LangGraph tools
+│   ├── agent_helpers.py      # Dynamic tool filtering
+│   └── subagent_utils.py     # UI message propagation
 └── mcp_servers/
-    ├── video_server.py  # Video MCP server (rent_movie, search_content)
-    └── wifi_server.py   # WiFi MCP server (restart_router, etc)
+    ├── video_server.py       # rent_movie, search_content (MCP)
+    └── wifi_server.py        # restart_router, diagnostics (MCP)
 
 frontend/src/
-├── App.jsx              # Streaming + custom event handling
-└── toolSchemas.ts       # AG UI tool schemas (advertised to backend)
+├── App.jsx                    # Stream handling + custom events
+└── toolSchemas.ts             # AG UI tool schemas
 ```
 
 ---
 
-## 🧪 Test Cases
+## 🧪 Try It Out
 
 | Command | What Happens |
 |---------|--------------|
-| "play me the matrix" | Video agent → rent_movie → play_video → `push_ui_message()` → YouTube player |
-| "restart my router" | WiFi agent → confirmation_dialog → Approve → restart_router |
+| "play me the matrix" | Video agent → **INTERRUPT** for rent_movie payment → Approve → play_video → YouTube player renders |
+| "restart my router" | WiFi agent → **INTERRUPT** for restart_router → Approve → Router restarts |
 
-**Simulate v1.0:** Remove `play_video` from `ADVERTISED_CLIENT_TOOLS` → Backend adapts automatically!
-
----
-
-## 🔧 How It Works
-
-```
-1. Frontend sends AG UI schemas via client_tool_schemas config
-2. tool_converter.py converts schemas → LangGraph tools
-3. Supervisor routes request to domain agent (WiFi/Video)
-4. Agent calls tool → push_ui_message(name, props)
-5. Subagent UI messages propagate to supervisor via explicit re-push
-6. Frontend receives custom event → Renders component
-```
-
-**Key logs:**
-```
-🎬 [PLAY_VIDEO] Tool called with kwargs: {'video_url': '...', 'title': 'The Matrix'}
-✅ [PLAY_VIDEO] UI message pushed to frontend
-🎨 [VIDEO] Propagating 1 UI messages to supervisor
-```
-
----
-
-## 🎨 Add New UI Components
-
-### 1. Define Schema (Frontend)
-
-```typescript
-// frontend/src/toolSchemas.ts
-{
-  name: "show_chart",
-  description: "Display a chart component",
-  parameters: {
-    type: "object",
-    properties: {
-      data: { type: "array" },
-      chartType: { type: "string" }
-    }
-  }
-}
-```
-
-### 2. Advertise It
-
-```javascript
-// frontend/src/App.jsx
-const ADVERTISED_CLIENT_TOOLS = ['play_video', 'show_chart']
-```
-
-### 3. Render Custom Event
-
-```javascript
-if (chunk.event === 'custom' && chunk.data.name === 'show_chart') {
-  setChartData(chunk.data.props)
-}
-```
-
-**That's it!** The backend auto-converts the schema → tool with `push_ui_message()`.
-
----
-
-## 🐛 Troubleshooting
-
-| Issue | Fix |
-|-------|-----|
-| UI not rendering | Check console for `🎨 Custom event received:` |
-| "Failed to connect" | `langgraph dev` running on port 2024? |
-| "Thread not found (404)" | Click "Clear Chat" (server restarted) |
-| Video not playing | Check backend logs for `🎬 [PLAY_VIDEO] Tool called` |
-| Import errors | Run `cd backend && uv sync` |
-
-**Debug logs:** Look for 🎬 tool calls, 🎨 UI propagation, ✅ push_ui_message success.
-
----
-
-## 📚 Learn More
-
-- **LangGraph Generative UI:** [Docs](https://docs.langchain.com/langsmith/generative-ui-react.md)
-- **MCP:** [Protocol](https://modelcontextprotocol.io/) | [FastMCP](https://github.com/jlowin/fastmcp)
-- **AG UI:** [Specification](https://github.com/assistant-ui/ag-ui)
-- **LangGraph:** [Subagents](https://langchain-ai.github.io/langgraph/patterns/subagents/) | [Custom Events](https://langchain-ai.github.io/langgraph/)
+**Test version-agnostic behavior:** Remove `play_video` from `ADVERTISED_CLIENT_TOOLS` → Backend adapts automatically!
 
 ---
 
 ## 💡 Key Takeaways
 
-✅ **Official LangGraph pattern** - Uses `push_ui_message()` for structured UI data  
-✅ **Version-agnostic** - Clients advertise schemas, backend adapts automatically  
-✅ **Clean separation** - MCP = backend logic, Client tools = UI rendering  
-✅ **Subagent UI propagation** - UI messages bubble up from nested agents  
-✅ **AG UI compliant** - Works with existing AG UI tool schemas  
-✅ **Streamable** - `streamMode: ['messages', 'custom']` for real-time UI updates  
+**Architecture Decisions:**
+- ✅ **Interrupts > Prompting** - Use HITL middleware for reliable user approval (not LLM prompts)
+- ✅ **Backend MCP for sensitive ops** - Security + client-agnostic + single source of truth
+- ✅ **Frontend tools for UI** - Version-agnostic, no backend changes for new UI features
+- ✅ **Generative UI pattern** - `push_ui_message()` for structured props (no JSON parsing)
 
-**Perfect for:** Multi-version clients, agent-driven UIs, dynamic tool binding
+**Perfect for:**  
+Multi-version clients • Agent-driven UIs • Secure operations • Dynamic tool binding
 
-**Key insight:** Frontend owns UI schemas → Backend converts them to tools at runtime → No backend changes for new UI features!
+---
+
+## 📚 LangChain Documentation
+
+- **[LangGraph Generative UI](https://docs.langchain.com/langsmith/generative-ui-react.md)** - Official pattern docs
+- **[Human-in-the-Loop Middleware](https://docs.langchain.com/oss/python/langchain/middleware.md)** - Interrupt-based approval
+- **[LangGraph Subagents](https://langchain-ai.github.io/langgraph/patterns/subagents/)** - Multi-agent patterns
+- **[MCP Protocol](https://modelcontextprotocol.io/)** - Model Context Protocol
+- **[FastMCP](https://github.com/jlowin/fastmcp)** - Python MCP framework
