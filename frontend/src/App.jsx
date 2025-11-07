@@ -4,38 +4,49 @@ import { CLIENT_TOOL_SCHEMAS } from './toolSchemas'
 import './App.css'
 
 /*
- * AG UI ARCHITECTURE PATTERN
+ * AG UI + LANGGRAPH GENERATIVE UI PATTERN
  * 
- * This frontend follows the AG UI (Agent-Generated UI) pattern:
+ * This frontend follows the AG UI Protocol with LangGraph's Generative UI:
  * 
- * 1. AGENT TOOL CALLS → FRONTEND COMPONENTS
- *    When the agent calls a "client tool" (e.g., confirmation_dialog),
- *    the frontend detects it and renders the corresponding React component.
+ * 1. TOOL ADVERTISEMENT (AG UI Protocol)
+ *    Frontend advertises which UI tools it can render via tool schemas.
+ *    Backend dynamically creates tools from these schemas.
  * 
- * 2. TOOL-TO-COMPONENT REGISTRY
- *    We map tool names to React components that render the UI.
+ * 2. TOOL EXECUTION → UI MESSAGES
+ *    When agent calls a client tool (e.g., play_video):
+ *    - Tool calls push_ui_message() with props
+ *    - UI message flows through dedicated UI channel
+ *    - Frontend receives structured props (no JSON parsing!)
  * 
- * 3. INTERRUPT-BASED INTERACTION
- *    Client tools trigger HITL interrupts, pausing agent execution.
- *    User interacts with the UI component, then execution resumes.
+ * 3. COMPONENT RENDERING
+ *    Frontend maps UI message names to React components.
+ *    Props are already structured objects ready to render.
  * 
- * 4. DYNAMIC CLIENT TOOL ADVERTISEMENT ✨
- *    Frontend advertises which UI tools it can render in each request.
- *    Backend middleware dynamically filters tools per domain.
- *    This makes the backend version-agnostic:
- *    - Old app version with 2 tools? Works!
- *    - New app version with 5 tools? Works!
- *    - No backend changes needed when adding new client tools!
+ * 4. INTERRUPT-BASED INTERACTION
+ *    Some tools trigger HITL interrupts (e.g., rent_movie).
+ *    User interacts with UI, then execution resumes.
+ * 
+ * 5. VERSION-AGNOSTIC MULTI-CLIENT SUPPORT ✨
+ *    Each client advertises its UI capabilities:
+ *    - Web app: ['play_video', 'network_status']
+ *    - Mobile app: ['play_video'] only
+ *    - CLI: [] (text only)
+ *    Backend adapts based on what client supports.
  * 
  * Flow: 
- *   1. Frontend advertises available tools → 
- *   2. Backend middleware filters by domain → 
- *   3. Agent calls tool → 
- *   4. HITL interrupt → 
- *   5. Frontend renders component →
- *   6. User interacts → 
- *   7. Resume with user's input → 
- *   8. Agent continues
+ *   1. Frontend advertises tool schemas → 
+ *   2. Backend creates tools, filters by domain → 
+ *   3. Agent calls tool (e.g., play_video) → 
+ *   4. Tool pushes UI message → 
+ *   5. Frontend receives via UI channel →
+ *   6. Component renders with structured props → 
+ *   7. User sees UI
+ * 
+ * Benefits:
+ *   ✅ Clean separation: messages vs UI data
+ *   ✅ No JSON parsing or tool message inspection
+ *   ✅ Official LangGraph pattern
+ *   ✅ Full AG UI Protocol compliance
  */
 
 // =============================================================================
@@ -165,43 +176,10 @@ function App() {
   const [interrupt, setInterrupt] = useState(null)
   const [interruptType, setInterruptType] = useState(null)
   const [interruptData, setInterruptData] = useState(null)
-  const [videoPlayer, setVideoPlayer] = useState(null)  // For play_video return_direct
+  const [videoPlayer, setVideoPlayer] = useState(null)  // For play_video
   const messagesEndRef = useRef(null)
 
   const client = new Client({ apiUrl: 'http://localhost:2024' })
-
-  // Helper: Parse video player data from tool messages
-  const parseVideoPlayer = (content) => {
-    if (typeof content === 'string') {
-      try {
-        const parsed = JSON.parse(content)
-        if (parsed?.type === 'play_video') {
-          // Handle both flat and nested kwargs structures
-          if (parsed.kwargs) {
-            // Flatten kwargs: {type: 'play_video', kwargs: {video_url, title}} 
-            // → {type: 'play_video', video_url, title}
-            return {
-              type: parsed.type,
-              ...parsed.kwargs
-            }
-          }
-          return parsed
-        }
-      } catch (e) {
-        // Not JSON, ignore
-      }
-    } else if (typeof content === 'object' && content?.type === 'play_video') {
-      // Handle nested kwargs in object form too
-      if (content.kwargs) {
-        return {
-          type: content.type,
-          ...content.kwargs
-        }
-      }
-      return content
-    }
-    return null
-  }
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -264,35 +242,48 @@ function App() {
             client_tool_schemas: filteredSchemas
           }
         },
-        streamMode: 'messages',
+        streamMode: ['messages', 'custom'],  // Stream messages + custom events (for UI)
       })
 
       let assistantMessage = ''
       let currentInterrupt = null
 
       for await (const chunk of stream) {
-        console.log('Stream chunk:', chunk.event, chunk.data) // Debug log
+        console.log('📦 Stream chunk:', chunk.event)
         
-        // Handle different event types
-        if (chunk.event === 'messages/partial' || chunk.event === 'messages/complete') {
-          const message = chunk.data?.[0]
-          const content = message?.content
+        // Handle custom events (UI messages from push_ui_message)
+        if (chunk.event === 'custom') {
+          const customData = chunk.data
+          console.log('🎨 Custom event received:', customData)
           
-          // Check if this is a tool message with return_direct (like play_video)
-          if (message?.type === 'tool') {
-            console.log('🔧 Tool message received:', message)
-            console.log('🔧 Tool content:', content)
-            const videoData = parseVideoPlayer(content)
-            if (videoData) {
-              console.log('🎬 Video player detected:', videoData)
-              setVideoPlayer(videoData)
-            } else {
-              console.log('⚠️ No video data parsed from tool message')
-            }
-          } else if (content && typeof content === 'string') {
+          // UI messages come through as custom events
+          if (customData.name === 'play_video') {
+            console.log('🎬 Video player custom event:', customData.props)
+            setVideoPlayer({
+              video_url: customData.props?.video_url,
+              title: customData.props?.title
+            })
+          }
+        }
+        
+        // Handle regular messages
+        if (chunk.event === 'messages/partial' || chunk.event === 'messages/complete') {
+          const messages = chunk.data || []
+          
+          for (const message of messages) {
+            const content = message?.content
+            
+            // Extract text from AI messages for display
+            if (message?.type === 'ai' && content) {
+              if (typeof content === 'string') {
             assistantMessage = content
           } else if (Array.isArray(content)) {
-            assistantMessage = content.map(c => c.text || '').join('')
+                const text = content.map(c => c.text || '').join('')
+                if (text) {
+                  assistantMessage = text
+                }
+              }
+            }
           }
         }
 
@@ -426,32 +417,52 @@ function App() {
             client_tool_schemas: filteredSchemas
           }
         },
-        streamMode: 'messages',
+        streamMode: ['messages', 'custom'],  // Stream messages + custom events (for UI)
       })
 
       let assistantMessage = ''
       let currentInterrupt = null
 
       for await (const chunk of stream) {
-        console.log('Resume stream chunk:', chunk.event, chunk.data) // Debug log
+        console.log('📦 Resume stream chunk:', chunk.event)
         
-        if (chunk.event === 'messages/partial') {
-          const content = chunk.data?.[0]?.content
-          if (content && typeof content === 'string') {
-            assistantMessage = content
-          } else if (Array.isArray(content)) {
-            assistantMessage = content.map(c => c.text || '').join('')
-          }
-        } else if (chunk.event === 'messages/complete') {
-          const content = chunk.data?.[0]?.content
-          if (content && typeof content === 'string') {
-            assistantMessage = content
-          } else if (Array.isArray(content)) {
-            assistantMessage = content.map(c => c.text || '').join('')
+        // Handle custom events (UI messages from push_ui_message)
+        if (chunk.event === 'custom') {
+          const customData = chunk.data
+          console.log('🎨 Custom event received during resume:', customData)
+          
+          // UI messages come through as custom events
+          if (customData.name === 'play_video') {
+            console.log('🎬 Video player custom event:', customData.props)
+            setVideoPlayer({
+              video_url: customData.props?.video_url,
+              title: customData.props?.title
+            })
           }
         }
         
-        // Check for NEW interrupts (like restart_router after confirmation_dialog)
+        // Handle regular messages
+        if (chunk.event === 'messages/partial' || chunk.event === 'messages/complete') {
+          const messages = chunk.data || []
+          
+          for (const message of messages) {
+            const content = message?.content
+            
+            // Extract text from AI messages for display
+            if (message?.type === 'ai' && content) {
+              if (typeof content === 'string') {
+            assistantMessage = content
+          } else if (Array.isArray(content)) {
+                const text = content.map(c => c.text || '').join('')
+                if (text) {
+                  assistantMessage = text
+                }
+              }
+            }
+          }
+        }
+        
+        // Check for NEW interrupts
         if (chunk.data?.__interrupt__) {
           currentInterrupt = chunk.data.__interrupt__[0]
           console.log('New interrupt detected during resume:', currentInterrupt)

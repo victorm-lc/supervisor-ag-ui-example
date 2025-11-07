@@ -4,19 +4,33 @@
  * These tool schemas follow the official AG UI Protocol specification:
  * https://docs.ag-ui.com/concepts/tools
  * 
- * The frontend defines tools and advertises them to the backend, which
- * dynamically converts them to LangGraph tools at runtime.
+ * HOW IT WORKS (LangGraph Generative UI Pattern):
+ * 1. Frontend advertises these tool schemas to backend
+ * 2. Backend dynamically creates LangChain tools from schemas
+ * 3. When agent calls tool (e.g., play_video), the tool:
+ *    - Pushes UI message through dedicated UI channel via push_ui_message()
+ *    - Returns text confirmation to agent
+ * 4. Frontend receives UI messages and renders components
+ * 
+ * MULTI-CLIENT SUPPORT (Version-Agnostic):
+ * - Web app: Advertises all tools ['play_video', 'network_status']
+ * - Mobile app: Advertises subset ['play_video'] only
+ * - CLI: Advertises none [] (text only)
+ * Backend creates tools based on what each client supports.
  * 
  * This pattern allows:
  * - Frontend teams to own UI tool definitions
  * - Backend to be version-agnostic (works with any tool schema)
  * - New app versions to add tools without backend changes
+ * - Clean separation: messages vs UI data
+ * - No JSON parsing needed - props are structured objects
  * 
  * AG UI Spec Compliance:
  * ✅ name, description, parameters follow official AG UI Tool interface
+ * ✅ Agents call tools normally (no special syntax)
+ * ✅ Works with any AG UI-compliant tool definition
  * 
  * Extensions to AG UI spec:
- * - returnDirect: LangGraph-specific flag for immediate UI rendering (return_direct=True)
  * - domains: Frontend-owned domain mapping for version-agnostic tool filtering
  */
 
@@ -43,8 +57,7 @@ export interface AGUIToolSchema {
     required: string[]
   }
   // Extensions:
-  returnDirect?: boolean  // LangGraph: immediate UI rendering without agent response
-  domains: string[]       // Frontend-owned: which domain agents can use this tool
+  domains: string[]  // Frontend-owned: which domain agents can use this tool
 }
 
 /**
@@ -56,7 +69,7 @@ export interface AGUIToolSchema {
 export const CLIENT_TOOL_SCHEMAS: AGUIToolSchema[] = [
   {
     name: 'play_video',
-    description: 'Play a video in the frontend YouTube player. This tool triggers the VideoPlayer React component with return_direct=True, meaning the UI renders immediately without sending a message back through the agent. Use the video_url returned from search_content.',
+    description: 'Play a video in the frontend YouTube player. Pushes UI message to render VideoPlayer React component.',
     parameters: {
       type: 'object',
       properties: {
@@ -71,23 +84,7 @@ export const CLIENT_TOOL_SCHEMAS: AGUIToolSchema[] = [
       },
       required: ['video_url', 'title'],
     },
-    returnDirect: true,
     domains: ['video'],
-  },
-  {
-    name: 'error_display',
-    description: 'Display an error message in the frontend. This tool triggers the ErrorDisplay React component.',
-    parameters: {
-      type: 'object',
-      properties: {
-        error_message: {
-          type: 'string',
-          description: 'Error message to display',
-        },
-      },
-      required: ['error_message'],
-    },
-    domains: ['wifi', 'video'],  // Shared across multiple domains!
   },
   {
     name: 'network_status_display',
