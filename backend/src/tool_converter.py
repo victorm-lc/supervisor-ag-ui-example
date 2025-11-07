@@ -128,7 +128,7 @@ def _create_tool_from_schema(schema: dict):
     
     # Convert to LangChain tool with explicit args_schema
     # No return_direct needed - UI messages flow through dedicated channel
-        tool_instance = langchain_tool(
+    tool_instance = langchain_tool(
             args_schema=DynamicArgsModel
         )(dynamic_tool_func)
     
