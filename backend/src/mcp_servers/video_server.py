@@ -88,13 +88,17 @@ To rent and watch this content, use the rent_movie tool with the title: "{conten
 @mcp.tool()
 def rent_movie(
     title: Annotated[str, "Exact title of the movie to rent (from search_content results)"],
+    rental_price: Annotated[float, "Rental price from search_content results (e.g., 3.99)"],
     selected_option: Annotated[str, "User's confirmation decision (e.g., 'Yes, Rent', 'Cancel')"] = None
 ) -> str:
     """
     Rent a movie and get the video URL to play it. Requires user approval before processing payment.
     
-    IMPORTANT: Always call search_content first to find the movie, then call this tool with
-    the exact title from search results to complete the rental and get the video URL.
+    WORKFLOW:
+    1. Call search_content(query) to find content and get the rental price
+    2. Call rent_movie(title, rental_price) with the exact title and price from search results
+    3. User will be prompted to confirm payment
+    4. On approval, returns video URL for playback
     
     This tool triggers a human-in-the-loop confirmation (configured in video_agent.py).
     The HumanInTheLoopMiddleware intercepts this tool call and pauses for user approval
@@ -102,6 +106,7 @@ def rent_movie(
     
     Args:
         title: Exact title of the content to rent (e.g., "The Matrix")
+        rental_price: Price shown in search_content results (e.g., 3.99 for $3.99)
         selected_option: User's choice after confirmation prompt (set by middleware)
     
     Returns:

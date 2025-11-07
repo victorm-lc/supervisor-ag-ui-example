@@ -8,15 +8,17 @@ MCP Tools (from Video Gateway MCP):
 
 Client Tools (dynamically filtered):
 - error_display: Error messages
-- play_video: Video player component (return_direct=True)
+- play_video: Video player component (pushes UI message)
 """
 
-from typing import Annotated
+from typing import Annotated, Sequence, TypedDict
 from langchain_core.tools import tool
 from langchain.tools import ToolRuntime
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage
+from langgraph.graph.message import add_messages
+from langgraph.graph.ui import AnyUIMessage, ui_message_reducer
 
 from src.mcp_setup import video_mcp_tools
 from src.middleware import AgentContext
@@ -24,18 +26,34 @@ from src.tool_converter import convert_agui_schemas_to_tools
 
 
 # =============================================================================
+# VIDEO AGENT STATE
+# =============================================================================
+
+class VideoAgentState(TypedDict):
+    """Video agent state with UI channel for Generative UI."""
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    ui: Annotated[Sequence[AnyUIMessage], ui_message_reducer]
+
+
+# =============================================================================
 # VIDEO AGENT FACTORY
 # =============================================================================
 
-VIDEO_SYSTEM_PROMPT = """You are a helpful customer service assistant for a premium video streaming service.
+VIDEO_SYSTEM_PROMPT = """You are a helpful customer service assistant helping customers find and watch video content.
 
-You are able to help the customer with their video streaming requests. Use 
-your tools to help the customer with their requests.
+Speak directly to the customer in first person:
+- "I'll search for that movie..."
+- "Let me find some great dog videos for you..."
+- "I can start playing that for you right now..."
 
-The Play Video tool will display the video for the user, so do NOT give the user the video_url.
-Be friendly and helpful, but make it clear all content requires rental.
+When helping customers watch content:
+1. Search for what they're looking for using search_content
+2. Present the results naturally  
+3. Use play_video to start the video immediately
 
-Act as one unified assistant, not as a subagent. The customer should feel like they're talking to one person who can help with everything.""",
+The rent_movie tool will automatically handle payment confirmation with the user before completing the rental.
+
+Be enthusiastic, friendly, and helpful."""
 
 def create_video_agent(tools: list):
     """
@@ -50,6 +68,7 @@ def create_video_agent(tools: list):
     return create_agent(
         model="anthropic:claude-haiku-4-5",
         tools=tools,  # MCP + client tools combined
+        state_schema=VideoAgentState,
         context_schema=AgentContext,
         middleware=[
             HumanInTheLoopMiddleware(
@@ -119,7 +138,15 @@ async def handle_video_request(
         config=runtime.config
     )
     
+    # Propagate UI messages from subagent to supervisor
+    # The subagent's UI state needs to be pushed to the parent's UI state
+    if result.get("ui"):
+        from langgraph.graph.ui import push_ui_message
+        print(f"🎨 [VIDEO] Propagating {len(result['ui'])} UI messages to supervisor")
+        for ui_msg in result["ui"]:
+            print(f"🎨 [VIDEO] Pushing UI message: {ui_msg['name']} with props {ui_msg['props']}")
+            push_ui_message(ui_msg["name"], ui_msg["props"])
+    
     # Return the final message content
-    # Interrupts automatically propagate through the shared config
     return result["messages"][-1].content
 

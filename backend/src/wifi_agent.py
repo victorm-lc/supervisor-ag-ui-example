@@ -13,16 +13,28 @@ Client Tools (dynamically filtered):
 - network_status_display: Network status cards
 """
 
-from typing import Annotated
+from typing import Annotated, Sequence, TypedDict
 from langchain_core.tools import tool
 from langchain.tools import ToolRuntime
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage
+from langgraph.graph.message import add_messages
+from langgraph.graph.ui import AnyUIMessage, ui_message_reducer
 
 from src.mcp_setup import wifi_mcp_tools
 from src.middleware import AgentContext
 from src.tool_converter import convert_agui_schemas_to_tools
+
+
+# =============================================================================
+# WIFI AGENT STATE
+# =============================================================================
+
+class WiFiAgentState(TypedDict):
+    """WiFi agent state with UI channel for Generative UI."""
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    ui: Annotated[Sequence[AnyUIMessage], ui_message_reducer]
 
 
 # =============================================================================
@@ -54,6 +66,7 @@ def create_wifi_agent(tools: list):
     return create_agent(
         model="anthropic:claude-haiku-4-5",
         tools=tools,  # MCP + client tools combined
+        state_schema=WiFiAgentState,
         context_schema=AgentContext,
         middleware=[
             HumanInTheLoopMiddleware(
