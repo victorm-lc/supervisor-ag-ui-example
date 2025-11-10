@@ -1,5 +1,7 @@
 # LangGraph Generative UI + MCP: Multi-Agent System
 
+## NOTE: Check the `deepagents` branch of this repo for an example implementation using [Deep Agents!](https://docs.langchain.com/oss/python/deepagents/overview)
+
 **Multi-agent architecture with client-advertised UI capabilities, interrupt-based HITL, and dynamic tool binding.**
 
 ✨ **LangGraph push_ui_message • MCP servers • Human-in-the-loop middleware • Supervisor routing • Version-agnostic clients**
