@@ -14,17 +14,15 @@ Client Tools (dynamically filtered):
 """
 
 from typing import Annotated, Sequence, TypedDict
-from langchain_core.tools import tool
-from langchain.tools import ToolRuntime
+from deepagents import CompiledSubAgent
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 from langgraph.graph.ui import AnyUIMessage, ui_message_reducer
 
 from src.mcp_setup import wifi_mcp_tools
-from src.utils.agent_helpers import AgentContext, get_filtered_tools
-from src.utils.subagent_utils import propagate_ui_messages
+from src.utils.subagent_utils import AgentContext, get_filtered_tools, UIPropagatoingRunnable
 
 
 # =============================================================================
@@ -81,45 +79,45 @@ def create_wifi_agent(tools: list):
 
 
 # =============================================================================
-# WIFI TOOL WRAPPER
+# WIFI SUBAGENT FACTORY
 # =============================================================================
 
-@tool
-async def handle_wifi_request(
-    request: Annotated[str, "Customer's WiFi or connectivity request"],
-    runtime: ToolRuntime
-) -> str:
+def create_wifi_subagent(runtime_config: dict) -> CompiledSubAgent:
     """
-    Route WiFi and network connectivity requests to the WiFi domain specialist.
+    Factory function that creates a CompiledSubAgent with dynamically filtered tools.
     
-    This tool invokes the wifi_agent subagent using per-request agent creation
-    with dynamically filtered tools via get_filtered_tools() helper.
+    This creates a WiFi specialist subagent for use with DeepAgents. The subagent
+    has MCP tools + client tools filtered by the 'wifi' domain.
     
-    Interrupts from the subagent automatically propagate to the supervisor via runtime.config.
+    The agent is wrapped with UIPropagatingRunnable to ensure UI messages from
+    the subagent propagate to the supervisor and reach the frontend.
     
-    🔑 ASYNC: MCP tools require async invocation!
+    Args:
+        runtime_config: Runtime configuration dict containing client_tool_schemas
+    
+    Returns:
+        CompiledSubAgent instance ready for use with create_deep_agent()
+    
+    Example:
+        wifi_subagent = create_wifi_subagent(runtime_config)
+        supervisor = create_deep_agent(subagents=[wifi_subagent, ...])
     """
-    # Get filtered tools using centralized helper function
+    # Get filtered tools (MCP + client tools for wifi domain)
     all_tools = get_filtered_tools(
         domain="wifi",
         mcp_tools=wifi_mcp_tools,
-        runtime_config=runtime.config
+        runtime_config=runtime_config
     )
     
-    # Create agent per-request with combined tools
-    # This ensures tools are properly registered at agent creation time
+    # Create and compile the agent graph
     wifi_agent = create_wifi_agent(all_tools)
     
-    # Invoke with runtime.config for interrupt propagation
-    # 🔑 MUST use ainvoke() for MCP tools!
-    result = await wifi_agent.ainvoke(
-        {"messages": [HumanMessage(content=request)]},
-        config=runtime.config
+    # Wrap with UIPropagatingRunnable to ensure UI messages reach frontend
+    wrapped_agent = UIPropagatoingRunnable(wifi_agent)
+    
+    return CompiledSubAgent(
+        name="wifi-specialist",
+        description="Handles WiFi, internet connectivity, network problems, router issues, slow speeds, connection drops, and network diagnostics",
+        runnable=wrapped_agent
     )
-    
-    # Propagate UI messages from subagent to supervisor
-    propagate_ui_messages(result)
-    
-    # Return the final message content
-    return result["messages"][-1].content
 
