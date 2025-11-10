@@ -173,8 +173,6 @@ Multi-version clients • Agent-driven UIs • Secure operations • Dynamic too
 
 ## 📚 LangChain Documentation
 
-- **[LangGraph Generative UI](https://docs.langchain.com/langsmith/generative-ui-react.md)** - Official pattern docs
-- **[Human-in-the-Loop Middleware](https://docs.langchain.com/oss/python/langchain/middleware.md)** - Interrupt-based approval
-- **[LangGraph Subagents](https://langchain-ai.github.io/langgraph/patterns/subagents/)** - Multi-agent patterns
-- **[MCP Protocol](https://modelcontextprotocol.io/)** - Model Context Protocol
-- **[FastMCP](https://github.com/jlowin/fastmcp)** - Python MCP framework
+- **[LangGraph Generative UI](https://docs.langchain.com/langsmith/generative-ui-react)** - Official pattern docs
+- **[Human-in-the-Loop Middleware](https://docs.langchain.com/oss/python/langchain/middleware)** - Interrupt-based approval
+- **[LangGraph Subagents](https://docs.langchain.com/oss/python/langchain/multi-agent#multi-agent)** - Multi-agent patterns
