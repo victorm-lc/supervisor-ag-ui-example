@@ -9,6 +9,7 @@ Architecture Overview:
 - Client tools trigger UI components in frontend via LangGraph's Generative UI
 - Interrupts pause execution until user provides input via UI
 - DeepAgents provides built-in context quarantine for cleaner supervisor context
+- ui_state_middleware extends supervisor state to propagate UI messages from subagents
 
 Key Innovations:
 1. CLIENT TOOL ADVERTISEMENT: Frontend sends available tools, backend filters per domain
@@ -16,9 +17,11 @@ Key Innovations:
 3. VERSION-AGNOSTIC: Works with any client version (v1.0, v2.0, v3.0) simultaneously
 4. GENERATIVE UI: Client tools push UI messages through dedicated UI channel
 5. DEEPAGENTS PATTERN: Built-in context quarantine and official LangChain multi-agent pattern
+6. MIDDLEWARE STATE EXTENSION: ui_state_middleware uses @after_model decorator with custom state (official pattern!)
 
 For more details, see:
-- utils/subagent_utils.py: Dynamic tool filtering, UI propagation, and agent context
+- utils/ui_middleware.py: Middleware function with @after_model that extends state schema with UI channel
+- utils/subagent_utils.py: Dynamic tool filtering and agent context
 - mcp_setup.py: MCP server initialization
 - wifi_agent.py: WiFi domain specialist (CompiledSubAgent factory)
 - video_agent.py: Video domain specialist (CompiledSubAgent factory)
@@ -28,6 +31,7 @@ For more details, see:
 from deepagents import create_deep_agent
 from src.wifi_agent import create_wifi_subagent
 from src.video_agent import create_video_subagent
+from src.utils.ui_middleware import ui_state_middleware
 
 
 # =============================================================================
@@ -62,6 +66,7 @@ def rebuild_deepagent(runtime_config: dict):
     return create_deep_agent(
         model="anthropic:claude-haiku-4-5",
         subagents=[wifi_subagent, video_subagent],
+        middleware=[ui_state_middleware],
         system_prompt="""You are a helpful customer service assistant. You help customers with WiFi/internet issues and video content.
 
 When a customer has a request, delegate to your specialized subagents using the task() tool:

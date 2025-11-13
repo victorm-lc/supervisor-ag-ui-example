@@ -15,18 +15,24 @@ import './App.css'
  * 2. TOOL EXECUTION → UI MESSAGES
  *    When agent calls a client tool (e.g., play_video):
  *    - Tool calls push_ui_message() with props
- *    - UI message flows through dedicated UI channel
+ *    - UI message flows through dedicated UI channel in state
  *    - Frontend receives structured props (no JSON parsing!)
  * 
- * 3. COMPONENT RENDERING
+ * 3. STATE-BASED UI PROPAGATION
+ *    UI messages propagate through custom state schema:
+ *    - Middleware extends DeepAgent state with 'ui' field
+ *    - UI messages accumulate in state.ui array
+ *    - Frontend streams 'values' to get full state including UI
+ * 
+ * 4. COMPONENT RENDERING
  *    Frontend maps UI message names to React components.
  *    Props are already structured objects ready to render.
  * 
- * 4. INTERRUPT-BASED INTERACTION
+ * 5. INTERRUPT-BASED INTERACTION
  *    Some tools trigger HITL interrupts (e.g., rent_movie).
  *    User interacts with UI, then execution resumes.
  * 
- * 5. VERSION-AGNOSTIC MULTI-CLIENT SUPPORT ✨
+ * 6. VERSION-AGNOSTIC MULTI-CLIENT SUPPORT ✨
  *    Each client advertises its UI capabilities:
  *    - Web app: ['play_video', 'network_status']
  *    - Mobile app: ['play_video'] only
@@ -37,15 +43,15 @@ import './App.css'
  *   1. Frontend advertises tool schemas → 
  *   2. Backend creates tools, filters by domain → 
  *   3. Agent calls tool (e.g., play_video) → 
- *   4. Tool pushes UI message → 
- *   5. Frontend receives via UI channel →
+ *   4. Tool pushes UI message to state.ui → 
+ *   5. Frontend receives via 'values' stream mode →
  *   6. Component renders with structured props → 
  *   7. User sees UI
  * 
  * Benefits:
  *   ✅ Clean separation: messages vs UI data
  *   ✅ No JSON parsing or tool message inspection
- *   ✅ Official LangGraph pattern
+ *   ✅ Official LangGraph pattern with middleware
  *   ✅ Full AG UI Protocol compliance
  */
 
@@ -242,27 +248,34 @@ function App() {
             client_tool_schemas: filteredSchemas
           }
         },
-        streamMode: ['messages', 'custom'],  // Stream messages + custom events (for UI)
+        streamMode: ['messages', 'values'],  // Stream messages + state values (includes UI)
       })
 
       let assistantMessage = ''
       let currentInterrupt = null
 
       for await (const chunk of stream) {
-        console.log('📦 Stream chunk:', chunk.event)
+        console.log('📦 Stream chunk:', chunk.event, chunk.data)
         
-        // Handle custom events (UI messages from push_ui_message)
-        if (chunk.event === 'custom') {
-          const customData = chunk.data
-          console.log('🎨 Custom event received:', customData)
+        // Handle state values (includes UI messages from the ui field)
+        if (chunk.event === 'values') {
+          const stateData = chunk.data
+          console.log('🎨 State values received:', stateData)
           
-          // UI messages come through as custom events
-          if (customData.name === 'play_video') {
-            console.log('🎬 Video player custom event:', customData.props)
-            setVideoPlayer({
-              video_url: customData.props?.video_url,
-              title: customData.props?.title
-            })
+          // Check for UI messages in the state
+          if (stateData?.ui && Array.isArray(stateData.ui)) {
+            console.log('🎬 UI messages found:', stateData.ui)
+            
+            // Process each UI message
+            for (const uiMessage of stateData.ui) {
+              if (uiMessage.name === 'play_video') {
+                console.log('🎬 Video player UI message:', uiMessage.props)
+                setVideoPlayer({
+                  video_url: uiMessage.props?.video_url,
+                  title: uiMessage.props?.title
+                })
+              }
+            }
           }
         }
         
@@ -417,7 +430,7 @@ function App() {
             client_tool_schemas: filteredSchemas
           }
         },
-        streamMode: ['messages', 'custom'],  // Stream messages + custom events (for UI)
+        streamMode: ['messages', 'values'],  // Stream messages + state values (includes UI)
       })
 
       let assistantMessage = ''
@@ -426,18 +439,25 @@ function App() {
       for await (const chunk of stream) {
         console.log('📦 Resume stream chunk:', chunk.event)
         
-        // Handle custom events (UI messages from push_ui_message)
-        if (chunk.event === 'custom') {
-          const customData = chunk.data
-          console.log('🎨 Custom event received during resume:', customData)
+        // Handle state values (includes UI messages from the ui field)
+        if (chunk.event === 'values') {
+          const stateData = chunk.data
+          console.log('🎨 State values received during resume:', stateData)
           
-          // UI messages come through as custom events
-          if (customData.name === 'play_video') {
-            console.log('🎬 Video player custom event:', customData.props)
-            setVideoPlayer({
-              video_url: customData.props?.video_url,
-              title: customData.props?.title
-            })
+          // Check for UI messages in the state
+          if (stateData?.ui && Array.isArray(stateData.ui)) {
+            console.log('🎬 UI messages found:', stateData.ui)
+            
+            // Process each UI message
+            for (const uiMessage of stateData.ui) {
+              if (uiMessage.name === 'play_video') {
+                console.log('🎬 Video player UI message:', uiMessage.props)
+                setVideoPlayer({
+                  video_url: uiMessage.props?.video_url,
+                  title: uiMessage.props?.title
+                })
+              }
+            }
           }
         }
         

@@ -3,8 +3,7 @@ Shared utilities for subagent invocation.
 
 Provides helpers for common subagent patterns:
 1. Dynamic tool filtering by domain
-2. UI message propagation from subagents to supervisor
-3. AgentContext dataclass for frontend-advertised tool schemas
+2. AgentContext dataclass for frontend-advertised tool schemas
 
 Key Pattern (Frontend-Owned Tool Schemas):
 1. Frontend defines tool schemas in TypeScript (toolSchemas.ts)
@@ -19,12 +18,14 @@ Example Flow:
 - Mobile v2.0: sends ['play_video', 'network_status_display'] schemas
 - Backend works with both versions (version-agnostic!)
 - Frontend controls domain mapping (no backend changes needed!)
+
+UI Message Propagation:
+- UI messages from subagents propagate automatically via ui_state_middleware
+- Middleware extends agent state with a 'ui' channel using @after_model decorator
+- No manual propagation wrappers needed
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict
-from langchain_core.runnables import Runnable, RunnableConfig
-from langgraph.graph.ui import push_ui_message
 from src.utils.tool_converter import convert_agui_schemas_to_tools
 
 
@@ -103,94 +104,4 @@ def get_filtered_tools(domain: str, mcp_tools: list, runtime_config: dict) -> li
     print(f"🔧 [{domain.upper()}] Combined {len(all_tools)} total tools: {[t.name for t in all_tools]}")
     
     return all_tools
-
-
-# =============================================================================
-# UI MESSAGE PROPAGATION
-# =============================================================================
-
-
-def propagate_ui_messages(subagent_result: Dict[str, Any]) -> None:
-    """
-    Propagate UI messages from a subagent's state to the parent supervisor's state.
-    
-    LangGraph subagents have their own UI state channel, but UI messages don't
-    automatically bubble up to the parent. This helper re-pushes them to the
-    supervisor's context so they reach the frontend.
-    
-    Args:
-        subagent_result: The result dict from subagent.ainvoke(), containing
-                        'messages' and 'ui' keys.
-    
-    Example:
-        result = await video_agent.ainvoke({"messages": [...]}, config=runtime.config)
-        propagate_ui_messages(result)  # ← Makes UI messages reach frontend
-        return result["messages"][-1].content
-    """
-    ui_messages = subagent_result.get("ui", [])
-    
-    if not ui_messages:
-        return
-    
-    print(f"🎨 [SUBAGENT] Propagating {len(ui_messages)} UI messages to supervisor")
-    
-    for ui_msg in ui_messages:
-        name = ui_msg.get("name")
-        props = ui_msg.get("props", {})
-        
-        if not name:
-            print(f"⚠️ [SUBAGENT] Skipping UI message with no name: {ui_msg}")
-            continue
-        
-        print(f"  ↳ Pushing UI message: {name} with props {props}")
-        push_ui_message(name, props)
-
-
-class UIPropagatoingRunnable(Runnable):
-    """
-    Wrapper around a compiled agent runnable that propagates UI messages.
-    
-    This is needed for DeepAgents CompiledSubAgent to ensure UI messages from
-    subagents bubble up to the supervisor and reach the frontend.
-    
-    Usage:
-        agent = create_agent(...)
-        wrapped_agent = UIPropagatingRunnable(agent)
-        subagent = CompiledSubAgent(name="...", runnable=wrapped_agent)
-    """
-    
-    def __init__(self, runnable: Runnable):
-        """Initialize with the agent runnable to wrap."""
-        self._runnable = runnable
-        super().__init__()
-    
-    def invoke(self, input: Dict[str, Any], config: RunnableConfig = None) -> Dict[str, Any]:
-        """Synchronous invoke with UI propagation."""
-        result = self._runnable.invoke(input, config)
-        propagate_ui_messages(result)
-        return result
-    
-    async def ainvoke(self, input: Dict[str, Any], config: RunnableConfig = None) -> Dict[str, Any]:
-        """Async invoke with UI propagation."""
-        result = await self._runnable.ainvoke(input, config)
-        propagate_ui_messages(result)
-        return result
-    
-    def stream(self, input: Dict[str, Any], config: RunnableConfig = None):
-        """Stream with UI propagation at the end."""
-        result = None
-        for chunk in self._runnable.stream(input, config):
-            result = chunk
-            yield chunk
-        if result:
-            propagate_ui_messages(result)
-    
-    async def astream(self, input: Dict[str, Any], config: RunnableConfig = None):
-        """Async stream with UI propagation at the end."""
-        result = None
-        async for chunk in self._runnable.astream(input, config):
-            result = chunk
-            yield chunk
-        if result:
-            propagate_ui_messages(result)
 

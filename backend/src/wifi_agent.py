@@ -22,7 +22,7 @@ from langgraph.graph.message import add_messages
 from langgraph.graph.ui import AnyUIMessage, ui_message_reducer
 
 from src.mcp_setup import wifi_mcp_tools
-from src.utils.subagent_utils import AgentContext, get_filtered_tools, UIPropagatoingRunnable
+from src.utils.subagent_utils import AgentContext, get_filtered_tools
 
 
 # =============================================================================
@@ -89,8 +89,8 @@ def create_wifi_subagent(runtime_config: dict) -> CompiledSubAgent:
     This creates a WiFi specialist subagent for use with DeepAgents. The subagent
     has MCP tools + client tools filtered by the 'wifi' domain.
     
-    The agent is wrapped with UIPropagatingRunnable to ensure UI messages from
-    the subagent propagate to the supervisor and reach the frontend.
+    UI messages from the subagent automatically propagate to the supervisor
+    through the ui_state_middleware applied at the supervisor level.
     
     Args:
         runtime_config: Runtime configuration dict containing client_tool_schemas
@@ -100,7 +100,10 @@ def create_wifi_subagent(runtime_config: dict) -> CompiledSubAgent:
     
     Example:
         wifi_subagent = create_wifi_subagent(runtime_config)
-        supervisor = create_deep_agent(subagents=[wifi_subagent, ...])
+        supervisor = create_deep_agent(
+            subagents=[wifi_subagent, ...],
+            middleware=[ui_state_middleware]
+        )
     """
     # Get filtered tools (MCP + client tools for wifi domain)
     all_tools = get_filtered_tools(
@@ -112,12 +115,9 @@ def create_wifi_subagent(runtime_config: dict) -> CompiledSubAgent:
     # Create and compile the agent graph
     wifi_agent = create_wifi_agent(all_tools)
     
-    # Wrap with UIPropagatingRunnable to ensure UI messages reach frontend
-    wrapped_agent = UIPropagatoingRunnable(wifi_agent)
-    
     return CompiledSubAgent(
         name="wifi-specialist",
         description="Handles WiFi, internet connectivity, network problems, router issues, slow speeds, connection drops, and network diagnostics",
-        runnable=wrapped_agent
+        runnable=wifi_agent
     )
 
